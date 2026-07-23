@@ -1,0 +1,10 @@
+---
+- import_playbook: kamailio.yml
+- import_playbook: rtpengine.yml
+- import_playbook: asterisk.yml
+- import_playbook: wazuh-indexer.yml
+- import_playbook: wazuh-manager.yml
+- import_playbook: wazuh-dashboard.yml
+- import_playbook: shuffle.yml
+- import_playbook: observability.yml
+

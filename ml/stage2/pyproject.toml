@@ -1,0 +1,16 @@
+[project]
+name = "ngn-sip-stage2"
+version = "0.1.0"
+description = "Stage 2 local Ollama-backed Wazuh alert triage worker"
+requires-python = ">=3.11"
+dependencies = [
+  "clickhouse-driver==0.2.9",
+  "psycopg[binary]==3.2.9",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["worker"]

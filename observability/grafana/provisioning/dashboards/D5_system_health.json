@@ -1,0 +1,49 @@
+{
+  "uid": "d5-system-health",
+  "title": "D5 System Health (containers + pipeline)",
+  "tags": ["ngn-sip", "health"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "ClickHouse query rate",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "rawSql": "SELECT if(count() = 0, 0, countIf(type = 'QueryFinish') / greatest(dateDiff('second', min(event_time), max(event_time)), 1)) AS queries_per_second FROM system.query_log WHERE $__timeFilter(event_time)"}]
+    },
+    {
+      "id": 2, "type": "stat", "title": "Kamailio msgs/s",
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "sum(rate({job=\"kamailio\",__name__=~\"kamailio_.*(rcv|fwd|sent).*(request|reply|msg).*\"}[5m])) or vector(0)"}]
+    },
+    {
+      "id": 3, "type": "stat", "title": "Service-up count",
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "sum(up{job=~\"prometheus|kamailio|asterisk|rtpengine\"}) or vector(0)"}],
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"value": 0, "color": "red"}, {"value": 3, "color": "yellow"}, {"value": 4, "color": "green"}]}}}
+    },
+    {
+      "id": 4, "type": "stat", "title": "Total Suricata alerts",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "rawSql": "SELECT count() FROM ngn_sip.suricata_alerts WHERE $__timeFilter(event_time)"}]
+    },
+    {
+      "id": 10, "type": "table", "title": "Up/down per Prometheus target",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "up", "format": "table", "instant": true}]
+    },
+    {
+      "id": 11, "type": "table", "title": "ClickHouse tables row counts",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 5},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "rawSql": "SELECT table, total_rows, formatReadableSize(total_bytes) AS size FROM system.tables WHERE database = 'ngn_sip' AND total_rows > 0 ORDER BY total_rows DESC"}]
+    }
+  ]
+}

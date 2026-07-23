@@ -1,0 +1,8 @@
+ignored:
+  # We intentionally track distro security updates via base image bumps and
+  # upstream package feeds; pinning every apt package version is too brittle.
+  - DL3008
+  # Same rationale for apk-based images.
+  - DL3018
+  # Kept intentionally for Apple Silicon parity during local development.
+  - DL3029

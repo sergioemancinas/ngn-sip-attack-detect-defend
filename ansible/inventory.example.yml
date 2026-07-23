@@ -1,0 +1,62 @@
+all:
+  vars:
+    ansible_user: ngnadmin
+    ansible_port: 2222
+    ansible_ssh_common_args: "-o IdentitiesOnly=yes"
+    vault_addr: "https://sec-vault-01.mgmt.ngn.local:8200"
+    stepca_addr: "https://sec-stepca-01.mgmt.ngn.local"
+    keycloak_realm: "ngn-sip-lab"
+  children:
+    mgmt:
+      hosts:
+        sec-vault-01:
+          ansible_host: 10.10.0.20
+        sec-stepca-01:
+          ansible_host: 10.10.0.21
+        id-keycloak-01:
+          ansible_host: 10.10.0.22
+    sip_edge:
+      hosts:
+        sip-kamailio-01:
+          ansible_host: 10.10.10.10
+        sip-rtpengine-01:
+          ansible_host: 10.10.10.20
+    sip_internal:
+      hosts:
+        pbx-asterisk-01:
+          ansible_host: 10.10.20.10
+        db-postgres-01:
+          ansible_host: 10.10.20.20
+    siem:
+      hosts:
+        wazuh-manager-01:
+          ansible_host: 10.10.30.10
+        wazuh-indexer-01:
+          ansible_host: 10.10.30.20
+        wazuh-dashboard-01:
+          ansible_host: 10.10.30.30
+    soar:
+      hosts:
+        shuffle-01:
+          ansible_host: 10.10.40.10
+    observability:
+      hosts:
+        obs-clickhouse-01:
+          ansible_host: 10.10.50.10
+        obs-vector-01:
+          ansible_host: 10.10.50.20
+        obs-grafana-01:
+          ansible_host: 10.10.50.30
+        obs-prometheus-01:
+          ansible_host: 10.10.50.40
+        obs-homer-01:
+          ansible_host: 10.10.50.50
+    attack:
+      hosts:
+        atk-sippts-01:
+          ansible_host: 10.10.99.10
+        atk-sipvicious-01:
+          ansible_host: 10.10.99.20
+        atk-honeypot-01:
+          ansible_host: 10.10.99.30
+

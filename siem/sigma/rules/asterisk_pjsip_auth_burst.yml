@@ -1,0 +1,22 @@
+title: Asterisk PJSIP Authentication Failure Burst
+id: db3d41f2-4f63-4ad4-aa8a-78d6bd33ab83
+status: test
+description: Detects five or more Asterisk PJSIP authentication failures from the same source IP within 60 seconds.
+references:
+  - https://attack.mitre.org/techniques/T1110/001/
+correlation:
+  type: event_count
+  rules:
+    - asterisk_pjsip_auth_failure
+  group-by:
+    - srcip
+  timespan: 60s
+  condition:
+    gte: 5
+  generate: true
+falsepositives:
+  - Shared SBC or NAT retries after backend failover.
+level: high
+tags:
+  - attack.credential_access
+  - attack.t1110.001

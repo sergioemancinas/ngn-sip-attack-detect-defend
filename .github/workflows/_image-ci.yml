@@ -1,0 +1,103 @@
+name: Reusable Image Build
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        required: true
+        type: string
+      context:
+        required: true
+        type: string
+      dockerfile:
+        required: true
+        type: string
+      platforms:
+        required: false
+        type: string
+        default: linux/amd64
+      push:
+        required: false
+        type: boolean
+        default: false
+      scan:
+        required: false
+        type: boolean
+        default: true
+      version-tag:
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-scan:
+    name: ${{ inputs.image-name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: inputs.push
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image metadata
+        id: meta
+        env:
+          IMAGE_NAME: ${{ inputs.image-name }}
+          VERSION_TAG: ${{ inputs.version-tag }}
+        run: |
+          image_ref="ghcr.io/${GITHUB_REPOSITORY}/ngn-sip-${IMAGE_NAME}"
+          tags="${image_ref}:${GITHUB_SHA}"
+          if [ -n "$VERSION_TAG" ]; then
+            tags="${tags}"$'\n'"${image_ref}:${VERSION_TAG}"
+          fi
+          echo "image_ref=${image_ref}" >> "$GITHUB_OUTPUT"
+          {
+            echo "tags<<EOF"
+            printf "%s\n" "$tags"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ inputs.platforms }}
+          push: ${{ inputs.push }}
+          load: ${{ inputs.scan && !inputs.push }}
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha,scope=${{ inputs.image-name }}
+          cache-to: type=gha,scope=${{ inputs.image-name }},mode=max
+
+      - name: Cache Trivy database
+        if: inputs.scan
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            trivy-${{ runner.os }}-
+
+      - name: Trivy critical/high fixable gate
+        if: inputs.scan
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: ${{ steps.meta.outputs.image_ref }}:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH

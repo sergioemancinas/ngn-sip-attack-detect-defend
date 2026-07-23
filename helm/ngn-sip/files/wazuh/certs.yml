@@ -1,0 +1,15 @@
+nodes:
+  # Short hostnames match the sip_lab network aliases in docker-compose.wazuh.yml.
+  # The cert generator requires a valid IP/FQDN SAN entry; for local dev we use
+  # loopback SANs and verify by certificate chain in clients.
+  indexer:
+    - name: wazuh-indexer
+      ip: 127.0.0.1
+
+  server:
+    - name: wazuh-manager
+      ip: 127.0.0.1
+
+  dashboard:
+    - name: wazuh-dashboard
+      ip: 127.0.0.1

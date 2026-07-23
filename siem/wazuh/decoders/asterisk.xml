@@ -1,0 +1,29 @@
+<!--
+  Asterisk full-log decoder.
+  Source: /var/log/asterisk/full (image already mounts asterisk_logs).
+  Format example:
+    [2026-04-25 12:34:56] NOTICE[123] chan_pjsip.c: Endpoint 1000 is now Reachable
+  MITRE coverage: T1110 (chan_pjsip auth fails), T1078 (valid account abuse via call patterns).
+  FP scenarios: short network blips fire 'Unreachable' transitions; threshold them.
+  Author: ngn-sip-detect-defend - Date: 2026-04-25
+-->
+
+<decoder name="asterisk">
+  <prematch type="pcre2">^\[\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d\] \w+\[\d+\]</prematch>
+  <regex type="pcre2">^\[(\S+ \S+)\] (\w+)\[\d+\]\s*(\S+):\s*(.*)$</regex>
+  <order>asterisk_ts, level, module, message</order>
+</decoder>
+
+<decoder name="asterisk-pjsip-auth-fail">
+  <parent>asterisk</parent>
+  <prematch type="pcre2">chan_pjsip.*Authentication failed</prematch>
+  <regex type="pcre2">endpoint=(\S+),.*from=(\S+)</regex>
+  <order>endpoint, srcip</order>
+</decoder>
+
+<decoder name="asterisk-pjsip-reach">
+  <parent>asterisk</parent>
+  <prematch type="pcre2">chan_pjsip.*Endpoint .* now</prematch>
+  <regex type="pcre2">Endpoint (\S+) is now (\w+)</regex>
+  <order>endpoint, state</order>
+</decoder>

@@ -1,0 +1,42 @@
+
+ngn-sip {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+DEPLOYABLE-NOW tiers (map cleanly to Kubernetes):
+{{- if .Values.tiers.clickhouse }}
+  - clickhouse        svc/clickhouse:8123 (HTTP) :9000 (native){{ end }}
+{{- if .Values.tiers.postgres }}
+  - postgres          svc/postgres:5432{{ end }}
+{{- if .Values.tiers.vector }}
+  - vector            svc/vector:9598 (metrics){{ end }}
+{{- if .Values.tiers.grafana }}
+  - grafana           svc/grafana:3000{{ end }}
+{{- if .Values.tiers.prometheus }}
+  - prometheus        svc/prometheus:9090{{ end }}
+{{- if .Values.tiers.keycloak }}
+  - keycloak          svc/keycloak:8080{{ end }}
+{{- if .Values.tiers.ml }}
+  - ollama            svc/ollama:11434  (+ stage1-scorer, stage2-worker){{ end }}
+{{- if .Values.tiers.dashboard }}
+  - dashboard         svc/ngn-sip-dashboard:3000{{ end }}
+{{- if .Values.tiers.homer }}
+  - homer             svc/homer-webapp:80 (+ heplify-server, hep-bridge, homer-postgres){{ end }}
+{{- if .Values.tiers.wazuhIndexer }}
+  - wazuh-indexer     svc/wazuh-indexer:9200 (needs cert Job + shared certs PVC){{ end }}
+
+DESIGN-ONLY tiers (render, but NOT certified on Kubernetes):
+{{- if .Values.tiers.edge }}
+  - kamailio + suricata co-pod (SIP edge). The ACTIVE-RESPONSE ban path is
+    design-only: it requires the Kamailio-RPC enforcement redesign in
+    docs/05_kubernetes_migration.md. Do not rely on bans working here.
+{{- else }}
+  - edge (kamailio+suricata) is DISABLED (tiers.edge=false). It is design-only.
+{{- end }}
+
+REMINDERS:
+  * Every value under .secrets is a PLACEHOLDER — override before real use.
+  * Local images (dashboard, hep-bridge) must be pushed to a reachable registry
+    or side-loaded into the node (k3s: `k3s ctr images import`).
+  * On Colima k3s: install with -f values-colima-k3s.yaml (sets local-path SC,
+    single-node RWX shim, trimmed resources).
+
+Full migration architecture + the two blockers: docs/05_kubernetes_migration.md

@@ -1,0 +1,305 @@
+{
+  "created_at": "2026-06-02T13:11:12.965627+00:00",
+  "dataset_source": "ngn_sip.sip_features_5min",
+  "detectors": {
+    "isolation_forest": {
+      "alert_latency": {
+        "mean_seconds": 158.66246666666666,
+        "median_seconds": 174.978,
+        "p95_seconds": 267.82359999999994
+      },
+      "binary": {
+        "f1": 0.7317073170731707,
+        "precision": 0.8823529411764706,
+        "recall": 0.625
+      },
+      "confusion_matrix": {
+        "labels": [
+          "benign",
+          "attack"
+        ],
+        "matrix": [
+          [
+            12,
+            2
+          ],
+          [
+            9,
+            15
+          ]
+        ]
+      },
+      "cv": {
+        "folds": [
+          {
+            "binary_f1": 0.9696969696969697,
+            "binary_precision": 0.9411764705882353,
+            "binary_recall": 1.0,
+            "fold": 1,
+            "roc_auc": 0.9375
+          },
+          {
+            "binary_f1": 0.9411764705882353,
+            "binary_precision": 0.8888888888888888,
+            "binary_recall": 1.0,
+            "fold": 2,
+            "roc_auc": 0.7777777777777778
+          },
+          {
+            "binary_f1": 0.9411764705882353,
+            "binary_precision": 0.8888888888888888,
+            "binary_recall": 1.0,
+            "fold": 3,
+            "roc_auc": 0.8333333333333334
+          },
+          {
+            "binary_f1": 0.6666666666666666,
+            "binary_precision": 1.0,
+            "binary_recall": 0.5,
+            "fold": 4,
+            "roc_auc": 1.0
+          },
+          {
+            "binary_f1": 0.9696969696969697,
+            "binary_precision": 0.9411764705882353,
+            "binary_recall": 1.0,
+            "fold": 5,
+            "roc_auc": 0.921875
+          }
+        ],
+        "mean_binary_f1": 0.8976827094474154,
+        "splits": 5
+      },
+      "dataset_source": "ngn_sip.sip_features_5min",
+      "detector": "isolation_forest",
+      "label_mode": "binary_anomaly",
+      "mlflow_run_id": "0c558e3956f14f958753aff605daf249",
+      "model_path": "/ml/stage1/models/stage1_isolation_forest.pkl",
+      "per_class": {
+        "attack": {
+          "f1": 0.7317073170731707,
+          "precision": 0.8823529411764706,
+          "recall": 0.625,
+          "support": 24
+        },
+        "benign": {
+          "f1": 0.6857142857142857,
+          "precision": 0.5714285714285714,
+          "recall": 0.8571428571428571,
+          "support": 14
+        }
+      },
+      "roc_auc": 0.8571428571428572,
+      "samples": 38,
+      "split": "stratified_holdout",
+      "synthetic_training_data": false
+    },
+    "xgboost": {
+      "alert_latency": {
+        "mean_seconds": 148.22079166666666,
+        "median_seconds": 154.6675,
+        "p95_seconds": 252.71364999999997
+      },
+      "binary": {
+        "f1": 1.0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "confusion_matrix": {
+        "labels": [
+          "benign",
+          "recon",
+          "credentials",
+          "injection",
+          "dos",
+          "media",
+          "tollfraud"
+        ],
+        "matrix": [
+          [
+            14,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            10,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            10,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            2
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            2
+          ]
+        ]
+      },
+      "cv": {
+        "folds": [
+          {
+            "binary_f1": 0.9696969696969697,
+            "binary_precision": 0.9411764705882353,
+            "binary_recall": 1.0,
+            "fold": 1,
+            "roc_auc": 0.9825569358178055
+          },
+          {
+            "binary_f1": 0.9696969696969697,
+            "binary_precision": 0.9411764705882353,
+            "binary_recall": 1.0,
+            "fold": 2,
+            "roc_auc": 0.9845410628019324
+          },
+          {
+            "binary_f1": 1.0,
+            "binary_precision": 1.0,
+            "binary_recall": 1.0,
+            "fold": 3,
+            "roc_auc": 0.9873188405797102
+          },
+          {
+            "binary_f1": 1.0,
+            "binary_precision": 1.0,
+            "binary_recall": 1.0,
+            "fold": 4,
+            "roc_auc": 0.9826086956521738
+          },
+          {
+            "binary_f1": 1.0,
+            "binary_precision": 1.0,
+            "binary_recall": 1.0,
+            "fold": 5,
+            "roc_auc": 0.9867588932806324
+          }
+        ],
+        "mean_binary_f1": 0.9878787878787879,
+        "splits": 5
+      },
+      "dataset_source": "ngn_sip.sip_features_5min",
+      "detector": "xgboost",
+      "label_mode": "multiclass",
+      "mlflow_run_id": "5e4e4cb61d5440ea9f8f46662e7aec55",
+      "model_path": "/ml/stage1/models/stage1_xgboost.pkl",
+      "per_class": {
+        "benign": {
+          "f1": 1.0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "support": 14
+        },
+        "credentials": {
+          "f1": 1.0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "support": 10
+        },
+        "dos": {
+          "f1": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "support": 0
+        },
+        "injection": {
+          "f1": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "support": 2
+        },
+        "media": {
+          "f1": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "support": 0
+        },
+        "recon": {
+          "f1": 1.0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "support": 10
+        },
+        "tollfraud": {
+          "f1": 0.6666666666666666,
+          "precision": 0.5,
+          "recall": 1.0,
+          "support": 2
+        }
+      },
+      "roc_auc": 0.9888888888888889,
+      "samples": 38,
+      "split": "stratified_holdout",
+      "synthetic_training_data": false
+    }
+  },
+  "feature_columns": [
+    "total_msgs",
+    "register_count",
+    "invite_count",
+    "options_count",
+    "auth_4xx_count",
+    "success_2xx",
+    "error_5xx",
+    "distinct_ua",
+    "distinct_to_uri",
+    "distinct_call_id",
+    "sum_body_size",
+    "sample_count",
+    "register_ratio",
+    "invite_ratio",
+    "options_ratio",
+    "auth_4xx_ratio",
+    "success_2xx_ratio",
+    "error_5xx_ratio",
+    "avg_body_size",
+    "ua_diversity_ratio",
+    "to_uri_diversity_ratio",
+    "call_id_diversity_ratio"
+  ],
+  "synthetic_training_data": false
+}

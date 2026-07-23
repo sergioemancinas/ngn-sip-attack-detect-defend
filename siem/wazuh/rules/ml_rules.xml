@@ -1,0 +1,56 @@
+<group name="sip,voip,ml,">
+  <rule id="100150" level="5">
+    <decoded_as>json</decoded_as>
+    <field name="ml.predicted_class" type="pcre2">.+</field>
+    <description>SIP ML verdict $(ml.predicted_class) $(ml.proba) $(ml.srcip)</description>
+  </rule>
+
+  <!--
+    Rule 100151 - Stage-1 ML high-confidence attack detection
+    Fires when 100150 has already matched AND the Stage-1 scorer
+    (ml/deploy/scorer.py) predicted a non-benign attack class with proba >= 0.90.
+
+    STATUS: ENABLED (2026-07-21).
+
+    Field mechanics (verified with `wazuh-logtest` against a crafted
+    /var/ossec/logs/ml/stage1.json event):
+      - The Wazuh json decoder renders numeric fields to a fixed 6-decimal
+        string, so ml.proba = 0.939 in the log decodes as "0.939000". The
+        proba regex ^(0\.9[0-9]*|1(\.0+)?)$ matches the 0.90..0.99 band
+        ("0.900000".."0.999999") and 1.0 ("1.000000"); anything below 0.90
+        (e.g. "0.899000") does not match. Threshold is therefore proba>=0.90.
+      - predicted_class must be exactly one of the five attack classes in
+        ml/deploy/models/classes.json (benign excluded), giving full coverage.
+
+    Why it is safe to enable in THIS deployment:
+      - There is NO native Wazuh <active-response> wired to the active_response
+        group in ossec.conf (the stock block is an inert placeholder). The
+        <group>active_response,</group> tag is taxonomy only; this rule does not
+        itself execute any ban.
+      - The real ML-driven response is the kamailio-autoban sidecar
+        (siem/wazuh/active-response/autoban_loop.sh), which reads
+        ngn_sip.ml_scores directly at the SAME proba>=0.90 gate but scoped to
+        EXTERNAL sources only (RFC1918 excluded) with a never-ban allowlist.
+        That path is already live, so enabling 100151 adds SOC-visible level-10
+        alerting without adding any new or unguarded ban action. (ml alerts also
+        carry an empty top-level srcip into ngn_sip.wazuh_alerts because srcip
+        is nested under ml.srcip, so 100151 cannot feed the deterministic
+        wazuh_alerts autoban path either.)
+
+    OPERATOR CAUTION before wiring native active-response to this rule/group:
+      The shipped model (ml/deploy/models/metrics.json) has uneven per-class
+      precision — credentials 1.00 and dos 1.00, but recon 0.83, tollfraud 0.40,
+      injection 0.00 (support 3). Do NOT attach a native firewall-drop
+      <active-response> to the active_response group until the model is
+      retrained to raise injection/tollfraud precision, or the response is
+      restricted to high-precision classes (credentials, dos) — otherwise a
+      high-proba misclassification could ban a legitimate source.
+  -->
+  <rule id="100151" level="10">
+    <if_sid>100150</if_sid>
+    <field name="ml.predicted_class" type="pcre2">^(recon|credentials|injection|dos|tollfraud)$</field>
+    <field name="ml.proba" type="pcre2">^(0\.9[0-9]*|1(\.0+)?)$</field>
+    <description>SIP ML high-confidence attack $(ml.predicted_class) $(ml.proba) $(ml.srcip)</description>
+    <group>active_response,</group>
+  </rule>
+</group>

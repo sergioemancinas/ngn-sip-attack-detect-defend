@@ -1,0 +1,15 @@
+apiVersion: 1
+datasources:
+  - name: ClickHouse
+    uid: clickhouse
+    type: grafana-clickhouse-datasource
+    isDefault: true
+    jsonData:
+      defaultDatabase: ngn_sip
+      port: 9000
+      server: clickhouse
+      username: ${CLICKHOUSE_USER}
+      tlsSkipVerify: true
+    secureJsonData:
+      password: ${CLICKHOUSE_PASSWORD}
+    editable: false

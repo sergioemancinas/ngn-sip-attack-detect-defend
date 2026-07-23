@@ -1,0 +1,616 @@
+<!--
+  Professional SIP detection rules for Wazuh.
+  SID range: 100100..100199 reserved for ngn-sip-detect-defend.
+  Taxonomy: level 5=info, 7=low, 10=medium, 12=high, 14=critical.
+-->
+<group name="sip,voip,">
+
+  <!--
+    Rule 100100 - Kamailio NGN-SEC base event
+    MITRE: T1078 (Valid Accounts)
+    TP: Any explicit Kamailio security event tagged with NGN-SEC.
+    FP: None expected; source emits this tag only on security-relevant paths.
+  -->
+  <rule id="100100" level="5">
+    <decoded_as>kamailio</decoded_as>
+    <match>NGN-SEC</match>
+    <description>Kamailio security event: $(event_type) from $(srcip) reason=$(reason)</description>
+    <group>sip_secfilter,</group>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100101 - Kamailio digest authentication failure (single)
+    MITRE: T1110 (Brute Force)
+    TP: Single REGISTER/auth failure with 401/403 or digest-fail reason.
+    FP: User typo or stale credentials; use burst rules for high confidence.
+  -->
+  <rule id="100101" level="5">
+    <decoded_as>kamailio</decoded_as>
+    <if_sid>100100</if_sid>
+    <field name="event_type" type="pcre2">(?i)(REGISTER|AUTH)</field>
+    <field name="reason" type="pcre2">(?i)(auth(?:entication)?[-_ ]?failed|digest[-_ ]?fail|401|403)</field>
+    <description>SIP auth failure from $(srcip)</description>
+    <group>authentication_failed,sip_auth,</group>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100102 - Credential brute force (rapid timing pattern)
+    MITRE: T1110.001 (Password Guessing)
+    TP: >=5 auth failures from same source within 60 seconds.
+    FP: NATed call-center egress; tune threshold by trusted subnet.
+  -->
+  <rule id="100102" level="12" frequency="5" timeframe="60">
+    <decoded_as>kamailio</decoded_as>
+    <if_matched_sid>100101</if_matched_sid>
+    <same_source_ip />
+    <field name="event_type" type="pcre2">(?i)(REGISTER|AUTH)</field>
+    <description>Rapid SIP credential brute-force pattern from $(srcip)</description>
+    <group>authentication_failures,brute_force,</group>
+    <mitre>
+      <id>T1110.001</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100103 - PIKE rate-limit blocked source
+    MITRE: T1499 (Endpoint Denial of Service)
+    TP: Kamailio PIKE reports blocking due to SIP request rate abuse.
+    FP: PIKE threshold too aggressive during load tests.
+  -->
+  <rule id="100103" level="10">
+    <decoded_as>kamailio</decoded_as>
+    <if_sid>100100</if_sid>
+    <field name="reason" type="pcre2">(?i)pike_flood</field>
+    <description>Kamailio PIKE rate-limit tripped (probable flood) from $(srcip)</description>
+    <group>flood,denial_of_service,</group>
+    <mitre>
+      <id>T1499</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100104 - Asterisk PJSIP authentication failure (single)
+    MITRE: T1110 (Brute Force)
+    TP: chan_pjsip reports Authentication failed for endpoint/source.
+    FP: Endpoint reboot race, old softphone registration profile, stale nonce.
+  -->
+  <rule id="100104" level="5">
+    <decoded_as>asterisk</decoded_as>
+    <field name="message" type="pcre2">(?i)chan_pjsip.*Authentication failed</field>
+    <description>Asterisk PJSIP authentication failed: $(message)</description>
+    <group>authentication_failed,sip_auth,</group>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100105 - Asterisk auth-failure burst correlation
+    MITRE: T1110.001 (Password Guessing)
+    TP: >=5 PJSIP auth failures from same source in 60 seconds.
+    FP: Shared SBC/NAT retries after backend failover.
+  -->
+  <rule id="100105" level="12" frequency="5" timeframe="60">
+    <decoded_as>asterisk</decoded_as>
+    <if_matched_sid>100104</if_matched_sid>
+    <same_source_ip />
+    <field name="message" type="pcre2">(?i)chan_pjsip.*Authentication failed</field>
+    <description>Asterisk PJSIP auth-failure burst from $(srcip)</description>
+    <group>authentication_failures,brute_force,asterisk_pjsip,</group>
+    <mitre>
+      <id>T1110.001</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100106 - Credential brute force (slow timing pattern)
+    MITRE: T1110.003 (Password Spraying)
+    TP: >=12 auth failures from same source in 10 minutes.
+    FP: Misconfigured endpoint polling with invalid credentials.
+  -->
+  <rule id="100106" level="10" frequency="12" timeframe="600">
+    <decoded_as>kamailio</decoded_as>
+    <if_matched_sid>100101</if_matched_sid>
+    <same_source_ip />
+    <field name="event_type" type="pcre2">(?i)(REGISTER|AUTH)</field>
+    <description>Low-and-slow SIP credential attack pattern from $(srcip)</description>
+    <group>authentication_failures,password_spraying,</group>
+    <mitre>
+      <id>T1110.003</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100107 - Blacklisted SIP scanner User-Agent family
+    MITRE: T1595.001 (Active Scanning: Scanning IP Blocks)
+    TP: User-Agent matches known tools: sipvicious, friendly-scanner, sipsak, svmap, svwar, svcrack, sippts variants.
+    FP: Security lab tooling on approved red-team subnets.
+  -->
+  <rule id="100107" level="10">
+    <decoded_as>kamailio</decoded_as>
+    <if_sid>100100</if_sid>
+    <field name="user_agent" type="pcre2">(?i)(friendly-scanner|sipvicious|sipsak|svmap|svwar|svcrack|sipcli|pplsip|sundayddr|vaxsipuseragent|sip-?scan|smap|iwar|sippts(?:[-_/][a-z0-9._-]+)?)</field>
+    <description>Blacklisted SIP scanner User-Agent detected: $(user_agent) from $(srcip)</description>
+    <group>recon,sip_scan,user_agent_blacklist,</group>
+    <mitre>
+      <id>T1595.001</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100108 - REGISTER flood from single source
+    MITRE: T1499.002 (Service Exhaustion Flood)
+    TP: >=30 REGISTER events from same source in 60 seconds.
+    FP: Broken registration timer or SIP endpoint reboot storm.
+  -->
+  <rule id="100108" level="12" frequency="30" timeframe="60">
+    <decoded_as>kamailio</decoded_as>
+    <if_matched_sid>100100</if_matched_sid>
+    <same_source_ip />
+    <field name="event_type">REGISTER</field>
+    <description>REGISTER flood from $(srcip)</description>
+    <group>flood,sip_register_flood,</group>
+    <mitre>
+      <id>T1499.002</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100109 - REGISTER from blacklisted scanner User-Agent
+    MITRE: T1595.001 (Active Scanning)
+    TP: REGISTER request with scanner User-Agent family.
+    FP: Controlled offensive-security drills in a lab VLAN.
+  -->
+  <rule id="100109" level="12">
+    <decoded_as>kamailio</decoded_as>
+    <if_sid>100100</if_sid>
+    <field name="event_type">REGISTER</field>
+    <field name="user_agent" type="pcre2">(?i)(friendly-scanner|sipvicious|sipsak|svmap|svwar|svcrack|sipcli|pplsip|sundayddr|vaxsipuseragent|sip-?scan|smap|iwar|sippts(?:[-_/][a-z0-9._-]+)?)</field>
+    <description>REGISTER from blacklisted SIP scanner UA $(user_agent) source $(srcip)</description>
+    <group>recon,credential_access,register_abuse,</group>
+    <mitre>
+      <id>T1595.001</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100110 - REGISTER with spoofed Contact header
+    MITRE: T1036.005 (Match Legitimate Name or Location)
+    TP: Kamailio secfilter reason indicates Contact/identity mismatch.
+    FP: Multi-homed softphones or SBC topology-hiding edge cases.
+  -->
+  <rule id="100110" level="10">
+    <decoded_as>kamailio</decoded_as>
+    <if_sid>100100</if_sid>
+    <field name="event_type">REGISTER</field>
+    <field name="reason" type="pcre2">(?i)(spoofed[-_ ]contact|contact[-_ ]spoof|contact[-_ ]mismatch|contact.*from.*mismatch)</field>
+    <description>REGISTER with spoofed Contact header from $(srcip)</description>
+    <group>spoofing,register_abuse,</group>
+    <mitre>
+      <id>T1036.005</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100111 - INVITE flood
+    MITRE: T1499.002 (Service Exhaustion Flood)
+    TP: >=40 INVITE events from same source in 60 seconds.
+    FP: Large call-center burst with poor rate-limits.
+  -->
+  <rule id="100111" level="12" frequency="40" timeframe="60">
+    <decoded_as>kamailio</decoded_as>
+    <if_matched_sid>100100</if_matched_sid>
+    <same_source_ip />
+    <field name="event_type">INVITE</field>
+    <description>INVITE flood from $(srcip)</description>
+    <group>flood,invite_abuse,</group>
+    <mitre>
+      <id>T1499.002</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100112 - BYE-flood teardown abuse
+    MITRE: T1499 (Endpoint Denial of Service)
+    TP: >=25 BYE events from same source in 60 seconds.
+    FP: Aggressive call-end retries after network flap.
+  -->
+  <rule id="100112" level="10" frequency="25" timeframe="60">
+    <decoded_as>kamailio</decoded_as>
+    <if_matched_sid>100100</if_matched_sid>
+    <same_source_ip />
+    <field name="event_type">BYE</field>
+    <description>BYE flood teardown abuse from $(srcip)</description>
+    <group>flood,session_teardown_abuse,</group>
+    <mitre>
+      <id>T1499</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100113 - Malformed Via header
+    MITRE: T1190 (Exploit Public-Facing Application)
+    TP: Parser/sanity layer reports malformed Via field.
+    FP: Non-standard but valid vendor Via formatting.
+  -->
+  <rule id="100113" level="10">
+    <decoded_as>kamailio</decoded_as>
+    <if_sid>100100</if_sid>
+    <field name="reason" type="pcre2">(?i)(malformed[-_ ]via|invalid[-_ ]via|bad[-_ ]via|via[-_ ]header[-_ ]invalid)</field>
+    <description>Malformed SIP Via header from $(srcip)</description>
+    <group>malformed_sip,header_violation,</group>
+    <mitre>
+      <id>T1190</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100114 - Malformed CSeq header
+    MITRE: T1190 (Exploit Public-Facing Application)
+    TP: Invalid CSeq syntax/value detected.
+    FP: Legacy gateway CSeq edge-cases during failover.
+  -->
+  <rule id="100114" level="10">
+    <decoded_as>kamailio</decoded_as>
+    <if_sid>100100</if_sid>
+    <field name="reason" type="pcre2">(?i)(malformed[-_ ]cseq|invalid[-_ ]cseq|cseq[-_ ]header[-_ ]invalid|cseq[-_ ]overflow)</field>
+    <description>Malformed SIP CSeq header from $(srcip)</description>
+    <group>malformed_sip,header_violation,</group>
+    <mitre>
+      <id>T1190</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100115 - Malformed From header
+    MITRE: T1190 (Exploit Public-Facing Application)
+    TP: Invalid or forged From URI/header syntax flagged.
+    FP: Interop issue from non-RFC-compliant phones.
+  -->
+  <rule id="100115" level="10">
+    <decoded_as>kamailio</decoded_as>
+    <if_sid>100100</if_sid>
+    <field name="reason" type="pcre2">(?i)(malformed[-_ ]from|invalid[-_ ]from|from[-_ ]header[-_ ]invalid)</field>
+    <description>Malformed SIP From header from $(srcip)</description>
+    <group>malformed_sip,header_violation,</group>
+    <mitre>
+      <id>T1190</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100116 - Malformed To header
+    MITRE: T1190 (Exploit Public-Facing Application)
+    TP: Invalid or malicious To URI/header syntax flagged.
+    FP: Badly formatted but benign SIP probes from monitoring tools.
+  -->
+  <rule id="100116" level="10">
+    <decoded_as>kamailio</decoded_as>
+    <if_sid>100100</if_sid>
+    <field name="reason" type="pcre2">(?i)(malformed[-_ ]to|invalid[-_ ]to|to[-_ ]header[-_ ]invalid)</field>
+    <description>Malformed SIP To header from $(srcip)</description>
+    <group>malformed_sip,header_violation,</group>
+    <mitre>
+      <id>T1190</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100117 - SDP injection in INVITE body
+    MITRE: T1190 (Exploit Public-Facing Application)
+    TP: INVITE carries SDP command-like payload markers or explicit sdp_injection reason.
+    FP: Exotic SDP attributes from lab codecs; allowlist trusted endpoints if needed.
+  -->
+  <rule id="100117" level="14">
+    <decoded_as>kamailio</decoded_as>
+    <if_sid>100100</if_sid>
+    <field name="event_type">INVITE</field>
+    <field name="reason" type="pcre2">(?i)(sdp[-_ ]injection|sdp[-_ ]payload[-_ ]anomaly|sdp.*(?:cmd=|wget|curl|powershell|;|\|\||&amp;&amp;))</field>
+    <description>SDP injection pattern in INVITE from $(srcip)</description>
+    <group>code_injection,sdp_abuse,</group>
+    <mitre>
+      <id>T1190</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100118 - Premium-prefix toll-fraud dial pattern (Kamailio)
+    MITRE: T1496 (Resource Hijacking)
+    TP: INVITE destination/reason contains high-risk E.164 prefixes (1900, 1809, 1268, etc).
+    FP: Legitimate premium service calls from approved billing trunks.
+  -->
+  <rule id="100118" level="12">
+    <decoded_as>kamailio</decoded_as>
+    <if_sid>100100</if_sid>
+    <field name="event_type">INVITE</field>
+    <field name="reason" type="pcre2">(?i)(?:ruri|dst|destination|dial)[:= ]\+?(?:1900|1809|1268|1976|976|979)\d{4,}</field>
+    <description>Premium-prefix toll-fraud dial pattern from $(srcip)</description>
+    <group>toll_fraud,premium_prefix,</group>
+    <mitre>
+      <id>T1496</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100119 - Repeated premium-prefix dial attempts
+    MITRE: T1496 (Resource Hijacking)
+    TP: >=3 premium-prefix INVITE attempts from same source in 120 seconds.
+    FP: Auto-redial from a permitted outbound gateway.
+  -->
+  <rule id="100119" level="14" frequency="3" timeframe="120">
+    <decoded_as>kamailio</decoded_as>
+    <if_matched_sid>100118</if_matched_sid>
+    <same_source_ip />
+    <field name="event_type">INVITE</field>
+    <description>Repeated premium-prefix dialing from $(srcip)</description>
+    <group>toll_fraud,premium_prefix,high_confidence,</group>
+    <mitre>
+      <id>T1496</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100120 - RTP relay abuse
+    MITRE: T1040 (Network Sniffing)
+    TP: NGN-SEC reason indicates unsolicited RTP/rtpbleed/media-port sweep behavior.
+    FP: One-way audio troubleshooting tools in controlled test windows.
+  -->
+  <rule id="100120" level="12">
+    <decoded_as>kamailio</decoded_as>
+    <if_sid>100100</if_sid>
+    <field name="reason" type="pcre2">(?i)(rtp[-_ ]relay[-_ ]abuse|rtpbleed|unsolicited[-_ ]rtp|media[-_ ]port[-_ ]sweep)</field>
+    <description>RTP relay abuse indicator from $(srcip)</description>
+    <group>media_abuse,rtp,</group>
+    <mitre>
+      <id>T1040</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100121 - RTCP anomaly
+    MITRE: T1040 (Network Sniffing)
+    TP: RTCP floods, SSRC anomalies, or unexpected RTCP without SDP setup.
+    FP: Network jitter tests or synthetic QA traffic.
+  -->
+  <rule id="100121" level="10">
+    <decoded_as>kamailio</decoded_as>
+    <if_sid>100100</if_sid>
+    <field name="reason" type="pcre2">(?i)(rtcp[-_ ]anomal|unexpected[-_ ]rtcp|rtcp[-_ ]flood|ssrc[-_ ]mismatch)</field>
+    <description>RTCP anomaly detected from $(srcip)</description>
+    <group>media_abuse,rtcp,</group>
+    <mitre>
+      <id>T1040</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100122 - NOTIFY flood
+    MITRE: T1499 (Endpoint Denial of Service)
+    TP: >=30 NOTIFY events from same source in 60 seconds.
+    FP: Presence fan-out burst after PBX restart.
+  -->
+  <rule id="100122" level="10" frequency="30" timeframe="60">
+    <decoded_as>kamailio</decoded_as>
+    <if_matched_sid>100100</if_matched_sid>
+    <same_source_ip />
+    <field name="event_type">NOTIFY</field>
+    <description>NOTIFY flooding from $(srcip)</description>
+    <group>flood,presence_abuse,</group>
+    <mitre>
+      <id>T1499</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100123 - SUBSCRIBE flood
+    MITRE: T1499 (Endpoint Denial of Service)
+    TP: >=20 SUBSCRIBE events from same source in 60 seconds.
+    FP: Legitimate BLF/presence resubscription storm after outage.
+  -->
+  <rule id="100123" level="10" frequency="20" timeframe="60">
+    <decoded_as>kamailio</decoded_as>
+    <if_matched_sid>100100</if_matched_sid>
+    <same_source_ip />
+    <field name="event_type">SUBSCRIBE</field>
+    <description>SUBSCRIBE flooding from $(srcip)</description>
+    <group>flood,presence_abuse,</group>
+    <mitre>
+      <id>T1499</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100124 - Presence-leak SUBSCRIBE targeting
+    MITRE: T1595 (Active Scanning)
+    TP: SUBSCRIBE reason indicates presence enumeration/resource list probing.
+    FP: Valid receptionist BLF subscriptions if endpoint not allowlisted.
+  -->
+  <rule id="100124" level="12">
+    <decoded_as>kamailio</decoded_as>
+    <if_sid>100100</if_sid>
+    <field name="event_type">SUBSCRIBE</field>
+    <field name="reason" type="pcre2">(?i)(presence[-_ ]leak|presence[-_ ]enum|dialog-info|message-summary|resource-list)</field>
+    <description>Presence-leak SUBSCRIBE behavior from $(srcip)</description>
+    <group>recon,presence_abuse,</group>
+    <mitre>
+      <id>T1595</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100125 - OPTIONS keepalive baseline
+    MITRE: T1071.001 (Application Layer Protocol: Web Protocols)
+    TP: OPTIONS event explicitly tagged as keepalive/qualify/nat-ping.
+    FP: Expected operational behavior; low-level baseline event.
+  -->
+  <rule id="100125" level="5">
+    <decoded_as>kamailio</decoded_as>
+    <if_sid>100100</if_sid>
+    <field name="event_type">OPTIONS</field>
+    <field name="reason" type="pcre2">(?i)(keepalive|qualify|nat[-_ ]ping|empty[-_ ]ruri)</field>
+    <description>OPTIONS keepalive baseline from $(srcip)</description>
+    <group>baseline,options_keepalive,</group>
+    <mitre>
+      <id>T1071.001</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100126 - OPTIONS scan candidate by distinct To-URI behavior
+    MITRE: T1595.001 (Active Scanning: Scanning IP Blocks)
+    TP: OPTIONS tagged as probe with explicit non-keepalive To URI pattern.
+    FP: SIP monitoring probes that intentionally target multiple extensions.
+  -->
+  <rule id="100126" level="7">
+    <decoded_as>kamailio</decoded_as>
+    <if_sid>100100</if_sid>
+    <field name="event_type">OPTIONS</field>
+    <field name="reason" type="pcre2">(?i)(distinct[-_ ]to[-_ ]uri|to[-_ ]uri[-_ ]scan|to=sip:[^[:space:]\";>]+@)</field>
+    <description>OPTIONS probe-style traffic (distinct To-URI candidate) from $(srcip)</description>
+    <group>recon,options_scan,</group>
+    <mitre>
+      <id>T1595.001</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100127 - OPTIONS scan escalation (distinct To-URI rate pattern)
+    MITRE: T1595.001 (Active Scanning: Scanning IP Blocks)
+    TP: >=12 probe-style OPTIONS events from same source in 90 seconds.
+    FP: Aggressive but approved SIP inventory scans.
+  -->
+  <rule id="100127" level="12" frequency="12" timeframe="90">
+    <decoded_as>kamailio</decoded_as>
+    <if_matched_sid>100126</if_matched_sid>
+    <same_source_ip />
+    <field name="event_type">OPTIONS</field>
+    <description>High-rate OPTIONS scan sweep from $(srcip)</description>
+    <group>recon,options_scan,high_confidence,</group>
+    <mitre>
+      <id>T1595.001</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100128 - Coordinated REGISTER activity tagged from same /24
+    MITRE: T1110.003 (Password Spraying)
+    TP: REGISTER reason includes multi-source /24 coordination metadata.
+    FP: NAT pool churn represented as /24 during legitimate re-registration.
+  -->
+  <rule id="100128" level="10">
+    <decoded_as>kamailio</decoded_as>
+    <if_sid>100100</if_sid>
+    <field name="event_type">REGISTER</field>
+    <field name="reason" type="pcre2">(?i)(multi[-_ ]source|coordinated|src24=\d+\.\d+\.\d+\.0/24|cidr24=\d+\.\d+\.\d+\.0/24)</field>
+    <description>Coordinated multi-source REGISTER activity in one /24 from $(srcip)</description>
+    <group>register_abuse,password_spraying,</group>
+    <mitre>
+      <id>T1110.003</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100129 - Coordinated REGISTER campaign escalation
+    MITRE: T1110.003 (Password Spraying)
+    TP: >=15 coordinated /24 REGISTER indicators in 120 seconds.
+    FP: Large-scale SIP endpoint reboot in one provider subnet.
+  -->
+  <rule id="100129" level="14" frequency="15" timeframe="120">
+    <decoded_as>kamailio</decoded_as>
+    <if_matched_sid>100128</if_matched_sid>
+    <field name="event_type">REGISTER</field>
+    <description>High-confidence coordinated REGISTER campaign detected</description>
+    <group>register_abuse,password_spraying,high_confidence,</group>
+    <mitre>
+      <id>T1110.003</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100130 - MITM SIP-over-TCP downgrade signal
+    MITRE: T1557 (Adversary-in-the-Middle)
+    TP: Reason indicates transport downgrade from TCP/TLS to UDP.
+    FP: Intentional interop downgrade during legacy trunk migration tests.
+  -->
+  <rule id="100130" level="14">
+    <decoded_as>kamailio</decoded_as>
+    <if_sid>100100</if_sid>
+    <field name="reason" type="pcre2">(?i)(tcp[-_ ]downgrade|sip[-_ ]over[-_ ]tcp[-_ ]downgrade|transport=tcp.*downgraded.*udp|mitm[-_ ]downgrade)</field>
+    <description>Possible SIP transport downgrade / MITM indicator from $(srcip)</description>
+    <group>mitm,transport_security,</group>
+    <mitre>
+      <id>T1557</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100131 - Kamailio htable ban_table hit
+    MITRE: T1499 (Endpoint Denial of Service)
+    TP: Kamailio logs dropping traffic from already banned source.
+    FP: Repeated retransmits from previously blocked legitimate test host.
+  -->
+  <rule id="100131" level="10">
+    <decoded_as>kamailio</decoded_as>
+    <match>Dropping banned SIP source</match>
+    <description>Kamailio ban_table drop hit observed</description>
+    <group>active_response,ban_table,</group>
+    <mitre>
+      <id>T1499</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100132 - SOAR action acknowledgement
+    MITRE: T1499 (Endpoint Denial of Service)
+    TP: Kamailio/Asterisk-side log confirms SOAR remediation action was executed.
+    FP: Test-mode workflow acknowledgements from tabletop exercises.
+  -->
+  <rule id="100132" level="7">
+    <decoded_as>kamailio</decoded_as>
+    <regex type="pcre2">(?i)(SOAR[-_ ]ACTION[-_ ]TAKEN|soar_ack|response playbook completed)</regex>
+    <description>SOAR response action acknowledged in SIP control-plane logs</description>
+    <group>soar,active_response,</group>
+    <mitre>
+      <id>T1499</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100133 - Asterisk premium-prefix dial pattern
+    MITRE: T1496 (Resource Hijacking)
+    TP: Asterisk message indicates dialing to risky premium prefixes.
+    FP: Approved premium service usage by authorized business teams.
+  -->
+  <rule id="100133" level="12">
+    <decoded_as>asterisk</decoded_as>
+    <field name="message" type="pcre2">(?i)(dial|invite|request).*(?:sip:|\+)?(?:1900|1809|1268|1976|976|979)\d{4,}</field>
+    <description>Asterisk premium-prefix call attempt detected: $(message)</description>
+    <group>toll_fraud,premium_prefix,asterisk_pbx,</group>
+    <mitre>
+      <id>T1496</id>
+    </mitre>
+  </rule>
+
+  <!--
+    Rule 100134 - Asterisk RTP relay abuse indicator
+    MITRE: T1040 (Network Sniffing)
+    TP: Asterisk media log reports unsolicited/invalid RTP relay behavior.
+    FP: Packet-loss stress tests or codec negotiation experiments.
+  -->
+  <rule id="100134" level="10">
+    <decoded_as>asterisk</decoded_as>
+    <field name="message" type="pcre2">(?i)(rtp.*(unknown|unsolicited|flood|invalid)|strict[- ]rtp.*(failed|timeout))</field>
+    <description>Asterisk RTP relay abuse indicator: $(message)</description>
+    <group>media_abuse,rtp,asterisk_pbx,</group>
+    <mitre>
+      <id>T1040</id>
+    </mitre>
+  </rule>
+
+</group>

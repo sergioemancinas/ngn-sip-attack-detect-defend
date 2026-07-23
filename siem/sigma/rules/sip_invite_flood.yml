@@ -1,0 +1,44 @@
+title: Kamailio NGN-SEC INVITE Event
+id: 703edc29-feef-41c1-ab3d-030b4adf628a
+name: kamailio_invite_event
+status: test
+description: Source event for SIP INVITE rate-based correlations.
+references:
+  - https://attack.mitre.org/techniques/T1499/002/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio NGN-SEC event_type and srcip fields decoded by siem/wazuh/decoders/kamailio.xml.
+detection:
+  selection:
+    event_type: INVITE
+  condition: selection
+falsepositives:
+  - Normal call setup activity when used without rate correlation.
+level: informational
+tags:
+  - attack.impact
+  - attack.t1499.002
+---
+title: SIP INVITE Flood From Single Source
+id: 992d0b6f-03f2-43bd-82ab-455dcfe6f909
+status: test
+description: Detects forty or more Kamailio NGN-SEC INVITE events from the same source IP within 60 seconds.
+references:
+  - https://attack.mitre.org/techniques/T1499/002/
+correlation:
+  type: event_count
+  rules:
+    - kamailio_invite_event
+  group-by:
+    - srcip
+  timespan: 60s
+  condition:
+    gte: 40
+  generate: true
+falsepositives:
+  - Large call-center burst with weak edge rate limits.
+level: high
+tags:
+  - attack.impact
+  - attack.t1499.002

@@ -1,0 +1,61 @@
+name: ngn-sip-keycloak
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.7
+    hostname: keycloak
+    # Hardened to match the Helm chart's securityContext. Keycloak binds only
+    # the non-privileged 8080 and writes to /tmp + its data volume, so it needs
+    # no Linux capabilities. mem/cpu/pid limits bound the identity provider.
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 300
+    entrypoint:
+      - /bin/bash
+      - -ec
+    command:
+      - |
+        cat >/tmp/wget <<'EOF'
+        #!/bin/bash
+        { printf 'HEAD /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&0; grep -q ' 200'; } 0<>/dev/tcp/localhost/8080
+        EOF
+        chmod +x /tmp/wget
+        exec /opt/keycloak/bin/kc.sh start-dev --import-realm
+    environment:
+      KC_HEALTH_ENABLED: "true"
+      KC_LEGACY_OBSERVABILITY_INTERFACE: "true"
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-change-me-local-only}
+      KC_HOSTNAME: "http://localhost:8080"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+      - ./identity/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    ports:
+      - "${DEV_BIND_IP:-127.0.0.1}:8080:8080"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/tmp/wget --quiet --tries=1 --spider http://localhost:8080/health/ready || exit 1",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      sip_lab:
+        aliases:
+          - keycloak
+
+volumes:
+  keycloak_data:
+
+networks:
+  sip_lab:
+    external: true
+    name: ngn-sip_sip_lab

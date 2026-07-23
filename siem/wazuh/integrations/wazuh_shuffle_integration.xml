@@ -1,0 +1,45 @@
+<!--
+  Wazuh -> Shuffle integration block.
+  Injected into /var/ossec/etc/ossec.conf by siem/wazuh/integrations/install_integrations.sh
+  (run once after `make wazuh-up` and `make soar-up`; re-run to apply changes here).
+
+  Forwards the FULL implemented SIP detection range from
+  siem/wazuh/rules/sip_rules.xml (SID 100100..100134 — all 35 rules that exist
+  in that file today) so the SOAR side has complete coverage of every SIP
+  correlation rule, not just a hand-picked subset. This is safe because the
+  integration <level>10</level> gate already drops informational SIP rules
+  (100100/100101/100104 level 5, 100125 level 5, 100126/100132 level 7), and the
+  graded Shuffle workflow (soar/shuffle/workflows/sip_response_orchestration.json)
+  independently filters by level>=10 and requires corroboration before acting.
+  Enumerating the whole range (rather than a subset) means new/relevelled SIP
+  rules reach the SOAR automatically.
+
+  Actionable SIP rules currently forwarded at level>=10 include:
+    100102 SIP auth brute-force burst      100103 PIKE rate-limit / flood
+    100105 Asterisk auth-failure burst     100106 low-and-slow credential attack
+    100107 blacklisted scanner UA          100108 REGISTER flood
+    100109 REGISTER from scanner UA        100110 spoofed Contact
+    100111 INVITE flood                    100112 BYE flood
+    100113-100116 malformed headers        100117 SDP injection (14)
+    100118/100119 toll-fraud premium prefix100120/100121 RTP/RTCP abuse
+    100122/100123 NOTIFY/SUBSCRIBE flood   100124 presence-leak SUBSCRIBE
+    100127 OPTIONS scan sweep              100128/100129 coordinated REGISTER
+    100130 transport-downgrade / MITM      100131 ban_table drop
+    100133 Asterisk premium-prefix         100134 Asterisk RTP abuse
+
+  ML rules 100150/100151 live in siem/wazuh/rules/ml_rules.xml and feed the
+  separate ML/autoban path (ngn_sip.ml_scores + kamailio-autoban); they are
+  intentionally NOT forwarded here to keep this the deterministic SIP-rule SOAR
+  channel.
+
+  Hook URL points to the Shuffle backend on the shared sip_lab docker network.
+-->
+<ossec_config>
+  <integration>
+    <name>shuffle</name>
+    <hook_url>http://shuffle-backend:5001/api/v1/hooks/webhook_441ceb72-ca48-4566-9e02-db79f54c1606</hook_url>
+    <level>10</level>
+    <rule_id>100100,100101,100102,100103,100104,100105,100106,100107,100108,100109,100110,100111,100112,100113,100114,100115,100116,100117,100118,100119,100120,100121,100122,100123,100124,100125,100126,100127,100128,100129,100130,100131,100132,100133,100134</rule_id>
+    <alert_format>json</alert_format>
+  </integration>
+</ossec_config>

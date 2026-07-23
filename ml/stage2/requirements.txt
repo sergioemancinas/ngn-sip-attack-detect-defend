@@ -1,0 +1,7 @@
+# Stage 2 worker runtime deps (python 3.11). Keep pins in sync with pyproject.toml.
+# clickhouse-driver: verdict audit writes to ngn_sip.llm_verdicts (native 9000,
+#   reachable container-to-container via the sip_lab alias 'clickhouse').
+# psycopg[binary]: pgvector RAG retrieval from rag.document_chunks (bundled
+#   libpq, no system packages needed in the slim image).
+clickhouse-driver==0.2.9
+psycopg[binary]==3.2.9

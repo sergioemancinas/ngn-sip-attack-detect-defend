@@ -1,0 +1,68 @@
+# HTTPS reverse proxy for the NGN SIP stack.
+#
+# All web UIs sit behind one Caddy on the ngn-sip_sip_lab Docker network, each on
+# its own *.ngn-sip.lab hostname with a "tls internal" cert from Caddy's local CA
+# (trust the CA once). Reach via a single SSH tunnel to host 3443 -> container 443,
+# and add the hostnames below to /etc/hosts (all -> 127.0.0.1).
+#
+# Keycloak is intentionally NOT proxied here: its fixed frontend hostname is
+# http://localhost:8080 (KC_HOSTNAME), so proxying it under a new host would break
+# its login page assets/redirects. Reach Keycloak via an 8080 tunnel; this is also
+# what keeps the dashboard OIDC login working.
+#
+# EXPOSURE (Let's Encrypt) later: set real public hostnames, drop "tls internal",
+# and open 443 at the campus edge.
+
+(secure_headers) {
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
+
+# Dashboard (SITE_ADDRESS defaults to ngn-sip.lab via .env)
+{$SITE_ADDRESS} {
+	tls internal
+	import secure_headers
+	reverse_proxy {$DASHBOARD_UPSTREAM}
+}
+
+# Grafana
+grafana.ngn-sip.lab {
+	tls internal
+	import secure_headers
+	reverse_proxy grafana:3000
+}
+
+# Wazuh dashboard (OpenSearch Dashboards, self-signed TLS upstream)
+wazuh.ngn-sip.lab {
+	tls internal
+	import secure_headers
+	reverse_proxy https://wazuh-dashboard:5601 {
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}
+
+# Shuffle SOAR
+shuffle.ngn-sip.lab {
+	tls internal
+	import secure_headers
+	reverse_proxy shuffle-frontend:80
+}
+
+# Prometheus
+prometheus.ngn-sip.lab {
+	tls internal
+	import secure_headers
+	reverse_proxy prometheus:9090
+}
+
+# ClickHouse HTTP (play UI at /play)
+clickhouse.ngn-sip.lab {
+	tls internal
+	import secure_headers
+	reverse_proxy clickhouse:8123
+}

@@ -1,0 +1,12 @@
+---
+- name: Configure Wazuh dashboard
+  hosts: wazuh-dashboard-01
+  become: true
+  roles:
+    - common
+  tasks:
+    - name: Record Wazuh dashboard version
+      ansible.builtin.debug:
+        msg: "Install Wazuh dashboard 4.10.3 and integrate Keycloak OIDC in implementation pass."
+      tags: [wazuh, oidc, scaffold]
+

@@ -1,0 +1,44 @@
+{{- if .Values.networkPolicy.enabled }}
+# Default-deny + allow-same-namespace NetworkPolicies (with DNS egress to
+# kube-system). DESIGN-ONLY: only enforced on a policy-capable CNI (Calico,
+# Cilium); the default k3s flannel ignores NetworkPolicy. Ported from the former
+# kubernetes/manifests/networkpolicy.yaml. See docs/05_kubernetes_migration.md.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ngn-sip.name" . }}-default-deny
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "networkpolicy") | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ngn-sip.name" . }}-allow-same-namespace
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "networkpolicy") | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+{{- end }}

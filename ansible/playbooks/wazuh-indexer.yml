@@ -1,0 +1,12 @@
+---
+- name: Configure Wazuh indexer
+  hosts: wazuh-indexer-01
+  become: true
+  roles:
+    - common
+  tasks:
+    - name: Record Wazuh indexer version
+      ansible.builtin.debug:
+        msg: "Install Wazuh indexer 4.10.3 with mTLS and VLAN-only binding in implementation pass."
+      tags: [wazuh, scaffold]
+

@@ -1,0 +1,22 @@
+title: SIP REGISTER With Spoofed Contact Header
+id: 49452e8e-d527-4644-a366-9e151627767b
+status: test
+description: Detects Kamailio NGN-SEC REGISTER events whose reason indicates Contact header spoofing or identity mismatch.
+references:
+  - https://attack.mitre.org/techniques/T1036/005/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio NGN-SEC event_type and reason fields decoded by siem/wazuh/decoders/kamailio.xml.
+detection:
+  selection_event:
+    event_type: REGISTER
+  selection_reason:
+    reason|re: '(?i)(spoofed[-_ ]contact|contact[-_ ]spoof|contact[-_ ]mismatch|contact.*from.*mismatch)'
+  condition: selection_event and selection_reason
+falsepositives:
+  - Multi-homed softphones or SBC topology-hiding edge cases.
+level: medium
+tags:
+  - attack.defense_evasion
+  - attack.t1036.005

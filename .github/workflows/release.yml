@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  images:
+    name: Release image ${{ matrix.image }}
+    uses: ./.github/workflows/_image-ci.yml
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: pgvector
+            context: infra/postgres
+            dockerfile: infra/postgres/Dockerfile
+          - image: asterisk
+            context: infra/asterisk
+            dockerfile: infra/asterisk/Dockerfile
+          - image: kamailio
+            context: infra/kamailio
+            dockerfile: infra/kamailio/Dockerfile
+          - image: rtpengine
+            context: infra/rtpengine
+            dockerfile: infra/rtpengine/Dockerfile
+          - image: sipp
+            context: infra/sipp
+            dockerfile: infra/sipp/Dockerfile
+    with:
+      image-name: ${{ matrix.image }}
+      context: ${{ matrix.context }}
+      dockerfile: ${{ matrix.dockerfile }}
+      push: true
+      scan: true
+      version-tag: ${{ github.ref_name }}
+    secrets: inherit
+
+  sbom:
+    name: SBOM (source + dependencies)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # attach the SBOM to the release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # Syft generates a CycloneDX SBOM over the repo (pip, npm, Dockerfiles),
+      # satisfying the OpenSSF Scorecard SBOM check. Pinned by major tag.
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+          # The explicit softprops step below attaches the SBOM; disable the
+          # action's own release upload (it needs actions:read to re-download
+          # its artifact and otherwise fails with "Resource not accessible").
+          upload-release-assets: false
+      - name: Attach SBOM to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: sbom.cyclonedx.json

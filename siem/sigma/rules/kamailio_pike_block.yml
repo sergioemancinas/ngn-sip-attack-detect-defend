@@ -1,0 +1,21 @@
+title: Kamailio PIKE Blocked SIP Source
+id: 02afcb00-699a-4830-b383-56c0a94b08d3
+name: kamailio_pike_block
+status: test
+description: Detects Kamailio PIKE blocking logs that indicate SIP request-rate abuse.
+references:
+  - https://attack.mitre.org/techniques/T1499/
+logsource:
+  product: ngn-sip
+  service: kamailio
+  definition: Kamailio PIKE syslog event. The decoder extracts srcip, while the detection relies on the raw PIKE BLOCKING keyword.
+detection:
+  keywords:
+    - PIKE BLOCKING
+  condition: keywords
+falsepositives:
+  - PIKE thresholds set too low during load testing.
+level: medium
+tags:
+  - attack.impact
+  - attack.t1499

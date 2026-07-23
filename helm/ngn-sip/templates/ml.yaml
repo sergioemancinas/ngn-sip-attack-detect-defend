@@ -1,0 +1,277 @@
+{{- if .Values.tiers.ml }}
+# ---------------------------------------------------------------------------
+# Ollama local LLM runtime. StatefulSet + models PVC (10g ceiling as Compose).
+# Models are pulled on demand (Compose: `make ml-pull`); the equivalent here is
+# `kubectl exec ... ollama pull <model>` once the Pod is up, or a bootstrap Job.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "ollama") | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "ollama") | nindent 4 }}
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ollama
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "ollama") | nindent 4 }}
+spec:
+  serviceName: ollama
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "ollama") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "ollama") | nindent 8 }}
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ollama
+          image: {{ .Values.images.ollama | quote }}
+          imagePullPolicy: {{ include "ngn-sip.pullPolicy" . }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: OLLAMA_KEEP_ALIVE
+              value: "30m"
+            - name: OLLAMA_NUM_PARALLEL
+              value: "1"
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "1"
+          ports:
+            - containerPort: 11434
+          resources:
+            {{- toYaml .Values.ollama.resources | nindent 12 }}
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "ollama list >/dev/null 2>&1"]
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            failureThreshold: 6
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: models
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- include "ngn-sip.storageClass" . | nindent 8 }}
+        resources:
+          requests:
+            storage: {{ .Values.ollama.storage }}
+---
+# ---------------------------------------------------------------------------
+# Stage-1 online scorer. Compose: cap_drop ALL + DAC_OVERRIDE (append into the
+# wazuh-owned shared logs volume), no-new-privileges.
+# NOTE: the trained model artifacts (*.joblib) are large binaries. In Compose
+# they are bind-mounted from ml/deploy/models. On K8s bake them into the image
+# OR populate the `stage1-models` PVC below; an empty PVC = a scorer that starts
+# but produces no scores.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: stage1-models
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "stage1-scorer") | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- include "ngn-sip.storageClass" . | nindent 2 }}
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stage1-scorer
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "stage1-scorer") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "stage1-scorer") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "stage1-scorer") | nindent 8 }}
+    spec:
+      securityContext:
+        fsGroup: {{ .Values.sharedLogs.gid }}
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: stage1-scorer
+          image: {{ .Values.images.stage1 | quote }}
+          imagePullPolicy: {{ include "ngn-sip.pullPolicy" . }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["DAC_OVERRIDE"]
+          env:
+            - name: CLICKHOUSE_HOST
+              value: clickhouse
+            - name: CLICKHOUSE_PORT
+              value: "9000"
+            - name: CLICKHOUSE_USER
+              value: {{ .Values.config.clickhouseUser | quote }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: ngn-sip-secrets, key: CLICKHOUSE_PASSWORD }
+            - name: CLICKHOUSE_DATABASE
+              value: {{ .Values.config.clickhouseDb | quote }}
+            - name: SCORE_INTERVAL_SECONDS
+              value: "60"
+            - name: MODEL_PATH
+              value: /models/stage1_pipeline.joblib
+            - name: ISOFOREST_PATH
+              value: /models/isoforest_pipeline.joblib
+            - name: CLASSES_PATH
+              value: /models/classes.json
+            - name: ML_LOG_PATH
+              value: /var/ossec/logs/ml/stage1.json
+          resources:
+            {{- toYaml .Values.stage1.resources | nindent 12 }}
+          volumeMounts:
+            - name: models
+              mountPath: /models
+              readOnly: true
+            - name: shared-logs
+              mountPath: /var/ossec/logs
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: stage1-models
+        - name: shared-logs
+          persistentVolumeClaim:
+            claimName: ngn-sip-shared-logs
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi
+---
+# ---------------------------------------------------------------------------
+# Stage-2 advisory triage worker. Reads alerts.json (shared logs, RO), asks
+# Ollama, retrieves RAG context from pgvector, writes llm_verdicts.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: stage2-state
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "stage2-worker") | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- include "ngn-sip.storageClass" . | nindent 2 }}
+  resources:
+    requests:
+      storage: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stage2-worker
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "stage2-worker") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "stage2-worker") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "stage2-worker") | nindent 8 }}
+    spec:
+      securityContext:
+        fsGroup: {{ .Values.sharedLogs.gid }}
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: stage2-worker
+          image: {{ .Values.images.stage2 | quote }}
+          imagePullPolicy: {{ include "ngn-sip.pullPolicy" . }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["DAC_OVERRIDE"]
+          env:
+            - name: OLLAMA_HOST
+              value: http://ollama:11434
+            - name: OLLAMA_MODEL
+              value: {{ .Values.config.ollamaModel | quote }}
+            - name: OLLAMA_TIMEOUT_SECONDS
+              value: "60"
+            - name: CLICKHOUSE_HOST
+              value: clickhouse
+            - name: CLICKHOUSE_PORT
+              value: "9000"
+            - name: CLICKHOUSE_USER
+              value: {{ .Values.config.clickhouseUser | quote }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: ngn-sip-secrets, key: CLICKHOUSE_PASSWORD }
+            - name: CLICKHOUSE_DATABASE
+              value: {{ .Values.config.clickhouseDb | quote }}
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef: { name: ngn-sip-secrets, key: POSTGRES_DSN }
+            - name: OLLAMA_EMBED_MODEL
+              value: nomic-embed-text
+            - name: RAG_EMBED_DIMENSION
+              value: "768"
+            - name: STAGE2_STATE_FILE
+              value: /state/stage1_alerts.offset
+          resources:
+            {{- toYaml .Values.stage2.resources | nindent 12 }}
+          volumeMounts:
+            - name: shared-logs
+              mountPath: /var/ossec/logs
+              readOnly: true
+            - name: state
+              mountPath: /state
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: shared-logs
+          persistentVolumeClaim:
+            claimName: ngn-sip-shared-logs
+        - name: state
+          persistentVolumeClaim:
+            claimName: stage2-state
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+{{- end }}

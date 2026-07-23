@@ -1,0 +1,23 @@
+title: Kamailio SIP Authentication Failure
+id: 4f2f979f-1663-4d08-844a-fccd7a3cd093
+name: kamailio_auth_failure
+status: test
+description: Detects a single Kamailio NGN-SEC REGISTER or AUTH authentication failure.
+references:
+  - https://attack.mitre.org/techniques/T1110/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio NGN-SEC fields decoded by siem/wazuh/decoders/kamailio.xml.
+detection:
+  selection_event:
+    event_type|re: '(?i)(REGISTER|AUTH)'
+  selection_reason:
+    reason|re: '(?i)(auth(?:entication)?[-_ ]?failed|digest[-_ ]?fail|401|403)'
+  condition: selection_event and selection_reason
+falsepositives:
+  - User typo or stale credentials from a legitimate endpoint.
+level: low
+tags:
+  - attack.credential_access
+  - attack.t1110

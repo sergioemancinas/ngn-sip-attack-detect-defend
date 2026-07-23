@@ -1,0 +1,44 @@
+title: Kamailio NGN-SEC BYE Event
+id: 8a58b1a9-006f-484b-b4b3-43d8cfae7376
+name: kamailio_bye_event
+status: test
+description: Source event for SIP BYE rate-based correlations.
+references:
+  - https://attack.mitre.org/techniques/T1499/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio NGN-SEC event_type and srcip fields decoded by siem/wazuh/decoders/kamailio.xml.
+detection:
+  selection:
+    event_type: BYE
+  condition: selection
+falsepositives:
+  - Normal call teardown activity when used without rate correlation.
+level: informational
+tags:
+  - attack.impact
+  - attack.t1499
+---
+title: SIP BYE Flood Teardown Abuse
+id: a891ed1f-199b-4a88-8a75-707331c6230b
+status: test
+description: Detects twenty-five or more Kamailio NGN-SEC BYE events from the same source IP within 60 seconds.
+references:
+  - https://attack.mitre.org/techniques/T1499/
+correlation:
+  type: event_count
+  rules:
+    - kamailio_bye_event
+  group-by:
+    - srcip
+  timespan: 60s
+  condition:
+    gte: 25
+  generate: true
+falsepositives:
+  - Aggressive call-end retries after a network flap.
+level: medium
+tags:
+  - attack.impact
+  - attack.t1499

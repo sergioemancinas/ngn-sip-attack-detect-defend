@@ -1,0 +1,239 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisPlacement": "auto",
+            "drawStyle": "points",
+            "fillOpacity": 0,
+            "lineWidth": 0,
+            "pointSize": 8,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "legend": {
+          "calcs": [
+            "count"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "editorType": "sql",
+          "format": "time_series",
+          "rawSql": "SELECT\n  time,\n  source AS metric,\n  count() AS events\nFROM (\n  SELECT\n    toStartOfMinute(event_time) AS time,\n    toString(src_ip) AS src_ip,\n    toString(sig_id) AS event_key,\n    'suricata_alerts' AS source\n  FROM ngn_sip.suricata_alerts\n  WHERE $__timeFilter(event_time)\n\n  UNION ALL\n\n  SELECT\n    toStartOfMinute(label_time) AS time,\n    toString(src_ip) AS src_ip,\n    attack_id AS event_key,\n    'attack_labels' AS source\n  FROM ngn_sip.attack_labels\n  WHERE $__timeFilter(label_time)\n)\nWHERE ('${src_ip}' = 'All' OR src_ip = '${src_ip}')\n  AND ('${event_key}' = 'All' OR event_key = '${event_key}')\nGROUP BY time, metric\nORDER BY time, metric",
+          "refId": "A"
+        }
+      ],
+      "title": "Suricata alerts + attack labels by minute",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "id": 2,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "editorType": "sql",
+          "format": "table",
+          "rawSql": "SELECT\n  event_time,\n  source,\n  src_ip,\n  event_key,\n  summary\nFROM (\n  SELECT\n    event_time,\n    'suricata_alerts' AS source,\n    toString(src_ip) AS src_ip,\n    toString(sig_id) AS event_key,\n    signature AS summary\n  FROM ngn_sip.suricata_alerts\n  WHERE $__timeFilter(event_time)\n\n  UNION ALL\n\n  SELECT\n    label_time AS event_time,\n    'attack_labels' AS source,\n    toString(src_ip) AS src_ip,\n    attack_id AS event_key,\n    concat(mitre_technique, ' / ', phase, ' / ', notes) AS summary\n  FROM ngn_sip.attack_labels\n  WHERE $__timeFilter(label_time)\n)\nWHERE ('${src_ip}' = 'All' OR src_ip = '${src_ip}')\n  AND ('${event_key}' = 'All' OR event_key = '${event_key}')\nORDER BY event_time DESC\nLIMIT 200",
+          "refId": "A"
+        }
+      ],
+      "title": "Filtered alert records",
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 40,
+  "tags": [
+    "sip",
+    "clickhouse",
+    "d2",
+    "attack"
+  ],
+  "templating": {
+    "list": [
+      {
+        "allValue": "All",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "All"
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse"
+        },
+        "definition": "SELECT src_ip FROM (SELECT toString(src_ip) AS src_ip FROM ngn_sip.suricata_alerts WHERE $__timeFilter(event_time) UNION ALL SELECT toString(src_ip) AS src_ip FROM ngn_sip.attack_labels WHERE $__timeFilter(label_time)) GROUP BY src_ip ORDER BY src_ip",
+        "hide": 0,
+        "includeAll": true,
+        "label": "src_ip",
+        "multi": false,
+        "name": "src_ip",
+        "options": [],
+        "query": "SELECT src_ip FROM (SELECT toString(src_ip) AS src_ip FROM ngn_sip.suricata_alerts WHERE $__timeFilter(event_time) UNION ALL SELECT toString(src_ip) AS src_ip FROM ngn_sip.attack_labels WHERE $__timeFilter(label_time)) GROUP BY src_ip ORDER BY src_ip",
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "All",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "All"
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse"
+        },
+        "definition": "SELECT event_key FROM (SELECT toString(sig_id) AS event_key FROM ngn_sip.suricata_alerts WHERE $__timeFilter(event_time) UNION ALL SELECT attack_id AS event_key FROM ngn_sip.attack_labels WHERE $__timeFilter(label_time)) WHERE event_key != '' GROUP BY event_key ORDER BY event_key",
+        "hide": 0,
+        "includeAll": true,
+        "label": "sig_id / attack_id",
+        "multi": false,
+        "name": "event_key",
+        "options": [],
+        "query": "SELECT event_key FROM (SELECT toString(sig_id) AS event_key FROM ngn_sip.suricata_alerts WHERE $__timeFilter(event_time) UNION ALL SELECT attack_id AS event_key FROM ngn_sip.attack_labels WHERE $__timeFilter(label_time)) WHERE event_key != '' GROUP BY event_key ORDER BY event_key",
+        "refresh": 2,
+        "regex": "",
+        "sort": 3,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "D2 Attack Timeline",
+  "uid": "d2-attack-timeline",
+  "version": 1,
+  "weekStart": ""
+}

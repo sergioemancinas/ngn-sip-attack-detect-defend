@@ -1,0 +1,44 @@
+title: Kamailio NGN-SEC NOTIFY Event
+id: 0fb7ec09-35a7-4641-b8a7-228b29a0a4c3
+name: kamailio_notify_event
+status: test
+description: Source event for SIP NOTIFY rate-based correlations.
+references:
+  - https://attack.mitre.org/techniques/T1499/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio NGN-SEC event_type and srcip fields decoded by siem/wazuh/decoders/kamailio.xml.
+detection:
+  selection:
+    event_type: NOTIFY
+  condition: selection
+falsepositives:
+  - Normal presence traffic when used without rate correlation.
+level: informational
+tags:
+  - attack.impact
+  - attack.t1499
+---
+title: SIP NOTIFY Flood From Single Source
+id: 19f19f9d-de7c-46cd-a025-853251e0b42c
+status: test
+description: Detects thirty or more Kamailio NGN-SEC NOTIFY events from the same source IP within 60 seconds.
+references:
+  - https://attack.mitre.org/techniques/T1499/
+correlation:
+  type: event_count
+  rules:
+    - kamailio_notify_event
+  group-by:
+    - srcip
+  timespan: 60s
+  condition:
+    gte: 30
+  generate: true
+falsepositives:
+  - Presence fan-out burst after PBX restart.
+level: medium
+tags:
+  - attack.impact
+  - attack.t1499

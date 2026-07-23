@@ -1,0 +1,21 @@
+title: Blacklisted SIP Scanner User Agent
+id: f0670df2-2ad2-48f1-95ee-1ab07d0dd09c
+name: sip_scanner_user_agent
+status: test
+description: Detects known SIP scanner User-Agent families in Kamailio NGN-SEC events.
+references:
+  - https://attack.mitre.org/techniques/T1595/001/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio NGN-SEC user_agent field decoded by siem/wazuh/decoders/kamailio.xml.
+detection:
+  selection:
+    user_agent|re: '(?i)(friendly-scanner|sipvicious|sipsak|svmap|svwar|svcrack|sippts(?:[-_/][a-z0-9._-]+)?)'
+  condition: selection
+falsepositives:
+  - Approved lab red-team tooling on known test networks.
+level: medium
+tags:
+  - attack.reconnaissance
+  - attack.t1595.001

@@ -1,0 +1,20 @@
+title: Kamailio RTCP Anomaly Indicator
+id: 194a1cce-b955-412d-9f2e-778650afeeef
+status: test
+description: Detects Kamailio NGN-SEC reason strings for RTCP floods, unexpected RTCP, or SSRC mismatch behavior.
+references:
+  - https://attack.mitre.org/techniques/T1040/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio NGN-SEC reason field decoded by siem/wazuh/decoders/kamailio.xml.
+detection:
+  selection:
+    reason|re: '(?i)(rtcp[-_ ]anomal|unexpected[-_ ]rtcp|rtcp[-_ ]flood|ssrc[-_ ]mismatch)'
+  condition: selection
+falsepositives:
+  - Network jitter tests or synthetic QA traffic.
+level: medium
+tags:
+  - attack.collection
+  - attack.t1040

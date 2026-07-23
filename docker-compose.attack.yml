@@ -1,0 +1,36 @@
+name: ngn-sip-attack
+
+services:
+  attacker:
+    image: ngn-sip/attacker:v1
+    build:
+      context: ./infra/attacker
+      args:
+        SIPPTS_VERSION: ${SIPPTS_VERSION:-v4.1.2}
+        SCAPY_VERSION: ${SCAPY_VERSION:-2.6.1}
+    profiles: ["attack"]
+    environment:
+      TARGET_HOST: ${TARGET_HOST:-kamailio}
+      TARGET_PORT: ${TARGET_PORT:-5060}
+    user: "10002:10002"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    pids_limit: 100
+    mem_limit: 256m
+    cpus: 0.25
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+      - /work:uid=10002,gid=10002,mode=0755,size=16m
+    networks:
+      sip_lab:
+        aliases:
+          - attacker
+    command: ["-h"]
+
+networks:
+  sip_lab:
+    external: true
+    name: ngn-sip_sip_lab

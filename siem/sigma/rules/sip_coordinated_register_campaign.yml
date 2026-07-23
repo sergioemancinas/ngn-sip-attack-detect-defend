@@ -1,0 +1,46 @@
+title: Coordinated SIP REGISTER Activity Indicator
+id: a6272ad3-f609-49c4-a597-fe3442d18738
+name: coordinated_sip_register_activity
+status: test
+description: Detects Kamailio NGN-SEC REGISTER events whose reason indicates coordinated multi-source or same-/24 activity.
+references:
+  - https://attack.mitre.org/techniques/T1110/003/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio NGN-SEC event_type and reason fields decoded by siem/wazuh/decoders/kamailio.xml.
+detection:
+  selection_event:
+    event_type: REGISTER
+  selection_reason:
+    reason|re: '(?i)(multi[-_ ]source|coordinated|src24=\d+\.\d+\.\d+\.0/24|cidr24=\d+\.\d+\.\d+\.0/24)'
+  condition: selection_event and selection_reason
+falsepositives:
+  - NAT pool churn represented as a /24 during legitimate re-registration.
+level: medium
+tags:
+  - attack.credential_access
+  - attack.t1110.003
+---
+title: Coordinated SIP REGISTER Campaign Escalation
+id: 83c35da1-eda5-4b95-85ea-23f48795c308
+status: test
+description: Detects fifteen or more coordinated REGISTER indicators with the same reason metadata within 120 seconds.
+references:
+  - https://attack.mitre.org/techniques/T1110/003/
+correlation:
+  type: event_count
+  rules:
+    - coordinated_sip_register_activity
+  group-by:
+    - reason
+  timespan: 120s
+  condition:
+    gte: 15
+  generate: true
+falsepositives:
+  - Large SIP endpoint reboot in one provider subnet.
+level: critical
+tags:
+  - attack.credential_access
+  - attack.t1110.003

@@ -1,0 +1,53 @@
+# HTTPS reverse proxy (Caddy) in front of ngn-sip-dashboard.
+# Prerequisite: dashboard on ngn-sip_sip_lab (docker-compose.dashboard.yml).
+# Run:
+#   docker compose --env-file .env -f docker-compose.proxy.yml up -d
+# Access via SSH tunnel to host port 3443 (DEV_BIND_IP, default 127.0.0.1).
+name: ngn-sip-proxy
+
+services:
+  ngn-sip-caddy:
+    image: caddy:2.9.1-alpine
+    hostname: ngn-sip-caddy
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 100
+    mem_limit: 256m
+    cpus: 0.5
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:443}
+      DASHBOARD_UPSTREAM: ${DASHBOARD_UPSTREAM:-ngn-sip-dashboard:3000}
+    ports:
+      - "${DEV_BIND_IP:-127.0.0.1}:3443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null http://127.0.0.1:2019/config/ || exit 1",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      sip_lab:
+        aliases:
+          - ngn-sip-caddy
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  sip_lab:
+    external: true
+    name: ngn-sip_sip_lab

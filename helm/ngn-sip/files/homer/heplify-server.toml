@@ -1,0 +1,83 @@
+# HEPlify-server local Homer 7 capture profile.
+# Source references:
+# - https://pkg.go.dev/github.com/sipcapture/heplify-server/config
+# - https://github.com/sipcapture/homer/wiki/HEPLIFY-SERVER-Settings
+
+HEPAddr = "0.0.0.0:9060"
+HEPTCPAddr = ""
+HEPTLSAddr = ""
+HEPWSAddr = ""
+HEPv2Enable = true
+
+ESAddr = ""
+ESDiscovery = false
+ESUser = ""
+ESPass = ""
+
+LokiURL = ""
+LineprotoURL = ""
+LokiHEPFilter = [1]
+LineprotoHEPFilter = [1]
+ForceHEPPayload = [1]
+
+PromAddr = "0.0.0.0:9090"
+PromTargetIP = "heplify-server"
+PromTargetName = "ngn-sip-homer"
+
+DBShema = "homer7"
+DBDriver = "postgres"
+DBAddr = "homer-postgres:5432"
+DBSSLMode = "disable"
+DBUser = "homer_user"
+DBPass = "__HOMER_DB_PASSWORD__"
+DBDataTable = "homer_data"
+DBConfTable = "homer_config"
+DBBulk = 400
+DBTimer = 4
+DBBuffer = 100000
+DBWorker = 2
+DBRotate = true
+DBPartLog = "24h"
+DBPartIsup = "24h"
+DBPartSip = "24h"
+DBPartQos = "24h"
+DBDropDays = 14
+DBDropDaysCall = 14
+DBDropDaysRegister = 14
+DBDropDaysDefault = 14
+DBDropOnStart = false
+
+Dedup = true
+DiscardMethod = []
+CensorMethod = []
+AlegIDs = []
+ForceALegID = false
+CustomHeader = []
+IgnoreCaseCH = false
+SIPHeader = [
+  "ruri_user",
+  "ruri_domain",
+  "from_user",
+  "from_tag",
+  "to_user",
+  "to_tag",
+  "callid",
+  "cseq",
+  "method",
+  "user_agent"
+]
+
+LogDbg = ""
+LogLvl = "info"
+LogStd = true
+LogSys = false
+Config = "/tmp/heplify-server.toml"
+ConfigHTTPAddr = ""
+ConfigHTTPPW = ""
+ScriptEnable = false
+ScriptEngine = "lua"
+ScriptFolder = ""
+ScriptHEPFilter = [1]
+TLSCertFolder = "."
+TLSMinVersion = "1.2"
+Version = false

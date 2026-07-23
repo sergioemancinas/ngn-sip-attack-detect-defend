@@ -1,0 +1,357 @@
+# Vector pipeline: Asterisk full-log -> raw_logs, Suricata eve.json -> suricata_alerts,
+# HEP bridge ndjson -> sip_events (source=hep). Suricata request path stays source=suricata.
+
+# Persistent state: file-source checkpoints AND the disk buffers of the four
+# ClickHouse sinks live here. The container rootfs is read_only, so this path
+# is a dedicated named volume (vector_data, chowned to 65534 by the vector-init
+# one-shot service in docker-compose.observability.yml) - a tmpfs would lose
+# buffered-but-unflushed events on every restart, defeating the disk buffer.
+data_dir: /var/lib/vector
+
+api:
+  enabled: true
+  address: "0.0.0.0:8686"
+
+sources:
+  asterisk_full:
+    type: file
+    include:
+      - /logs/asterisk/full
+    read_from: beginning
+    ignore_older_secs: 86400
+
+  suricata_eve:
+    type: file
+    include:
+      - /logs/suricata/eve.json
+    read_from: beginning
+    ignore_older_secs: 86400
+
+  hep_events:
+    type: file
+    include:
+      - /logs/hep/events.ndjson
+    read_from: beginning
+    ignore_older_secs: 86400
+
+  wazuh_alerts:
+    type: file
+    include:
+      - /logs/wazuh/alerts.json
+    read_from: beginning
+    ignore_older_secs: 86400
+
+  # Vector's own telemetry: buffer fill (vector_buffer_byte_size,
+  # vector_buffer_events), discards (vector_buffer_discarded_events_total,
+  # vector_component_discarded_events_total) and sink errors
+  # (vector_component_errors_total, vector_http_client_responses_total by
+  # status). Exported via the vector_metrics sink below so Prometheus can see
+  # what used to be silent drops (e.g. the raw_logs 400-error data loss).
+  internal_metrics:
+    type: internal_metrics
+
+transforms:
+  parse_asterisk:
+    type: remap
+    inputs: [asterisk_full]
+    source: |
+      .source = "asterisk"
+      # Emit `timestamp` as a ClickHouse-native string. Vector's default
+      # RFC3339 timestamp (with T/Z) is rejected by the DateTime64 JSONEachRow
+      # parser, which silently dropped every raw_logs row (400 Bad Request).
+      # Asterisk logfile lines start with [YYYY-MM-DD HH:MM:SS]; derive the time
+      # column from that, falling back to now() for any non-conforming line.
+      tsmatch, tserr = parse_regex(.message, r'^\[(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]')
+      if tserr == null {
+        .timestamp = to_string(tsmatch.ts) + ".000"
+      } else {
+        .timestamp = format_timestamp!(now(), format: "%Y-%m-%d %H:%M:%S%.3f")
+      }
+      parsed, err = parse_regex(.message, r'^\[(?P<ts>\S+ \S+)\] (?P<level>\w+)\[\d+\]\S* (?P<module>[^:]+):\s*(?P<msg>.*)$')
+      if err == null {
+        .level = parsed.level
+        .module = parsed.module
+        .message = parsed.msg
+      }
+
+  parse_suricata_alerts:
+    type: remap
+    inputs: [suricata_eve]
+    drop_on_error: true
+    drop_on_abort: true
+    source: |
+      raw = .message
+      parsed, err = parse_json(raw)
+      if err != null {
+        abort
+      }
+      if parsed.event_type != "alert" {
+        abort
+      }
+      ts, terr = parse_timestamp(parsed.timestamp, format: "%Y-%m-%dT%H:%M:%S%.f%:z")
+      if terr != null {
+        ts = now()
+      }
+      . = {
+        "event_time":      format_timestamp!(ts, format: "%Y-%m-%d %H:%M:%S%.3f"),
+        "event_type":      string!(parsed.event_type),
+        "src_ip":          to_string(parsed.src_ip) ?? "",
+        "src_port":        to_int(parsed.src_port) ?? 0,
+        "dest_ip":         to_string(parsed.dest_ip) ?? "",
+        "dest_port":       to_int(parsed.dest_port) ?? 0,
+        "proto":           to_string(parsed.proto) ?? "",
+        "sig_id":          to_int(parsed.alert.signature_id) ?? 0,
+        "sig_rev":         to_int(parsed.alert.rev) ?? 0,
+        "signature":       to_string(parsed.alert.signature) ?? "",
+        "category":        to_string(parsed.alert.category) ?? "",
+        "severity":        to_int(parsed.alert.severity) ?? 0,
+        "sip_method":      to_string(parsed.sip.method) ?? "",
+        "sip_request_uri": to_string(parsed.sip.uri) ?? "",
+        "sip_user_agent":  to_string(parsed.sip.user_agent) ?? "",
+        "sip_call_id":     to_string(parsed.sip.call_id) ?? "",
+        "raw_message":     raw,
+      }
+
+  parse_suricata_sip:
+    # Suricata SIP app-layer events (event_type == "sip") become structured
+    # ngn_sip.sip_events rows. This is the feature source for the ML pipeline:
+    # mv_sip_features_5min aggregates sip_events per 5min/src_ip into
+    # sip_features_5min. Without this transform sip_events stays empty and the
+    # Stage-1 model has no real features. attack_id / mitre_technique are left
+    # empty here; ground-truth labelling is joined from attack_labels by time
+    # window inside the feature builder, not stamped at ingest.
+    type: remap
+    inputs: [suricata_eve]
+    drop_on_error: true
+    drop_on_abort: true
+    source: |
+      raw = .message
+      parsed, err = parse_json(raw)
+      if err != null {
+        abort
+      }
+      if parsed.event_type != "sip" {
+        abort
+      }
+      ts, terr = parse_timestamp(parsed.timestamp, format: "%Y-%m-%dT%H:%M:%S%.f%:z")
+      if terr != null {
+        ts = now()
+      }
+      # Suricata 7.0.x SIP eve output is minimal: method, uri, version,
+      # request_line only. There is no extended SIP option, so from/to/call-id/
+      # user-agent/response-code/cseq/content-length are NOT available here and
+      # are left empty. Response codes and full SIP headers arrive via the HEP bridge
+      # (Kamailio siptrace -> heplify -> hep-bridge -> this file source) with source=hep.
+      # The features that ARE derivable from this source are per-window method mix (REGISTER/INVITE/OPTIONS counts),
+      # distinct request-URI, and message rate per src_ip.
+      . = {
+        "event_time":      format_timestamp!(ts, format: "%Y-%m-%d %H:%M:%S%.3f"),
+        "source":          "suricata",
+        "src_ip":          to_string(parsed.src_ip) ?? "::",
+        "src_port":        to_int(parsed.src_port) ?? 0,
+        "dst_ip":          to_string(parsed.dest_ip) ?? "::",
+        "dst_port":        to_int(parsed.dest_port) ?? 0,
+        "transport":       downcase(to_string(parsed.proto) ?? "udp"),
+        "method":          to_string(parsed.sip.method) ?? "",
+        "response_code":   0,
+        "response_phrase": "",
+        "call_id":         "",
+        "from_uri":        "",
+        "to_uri":          to_string(parsed.sip.uri) ?? "",
+        "user_agent":      "",
+        "cseq":            "",
+        "body_size":       0,
+        "raw_message":     raw,
+        "attack_id":       "",
+        "mitre_technique": "",
+      }
+
+  parse_hep_sip:
+    # Normalized SIP rows from observability/hep-bridge (Homer Postgres poll).
+    # Populates response_code/response_phrase and full headers; source='hep'.
+    type: remap
+    inputs: [hep_events]
+    drop_on_error: true
+    drop_on_abort: true
+    source: |
+      raw = .message
+      parsed, err = parse_json(raw)
+      if err != null {
+        abort
+      }
+      ts_text = to_string(parsed.event_time) ?? ""
+      ts, terr = parse_timestamp(ts_text, format: "%Y-%m-%d %H:%M:%S%.3f")
+      if terr != null {
+        ts, terr = parse_timestamp(ts_text, format: "%+")
+        if terr != null {
+          ts = now()
+        }
+      }
+      response_code = to_int(parsed.response_code) ?? 0
+      . = {
+        "event_time":      format_timestamp!(ts, format: "%Y-%m-%d %H:%M:%S%.3f"),
+        "source":          "hep",
+        "src_ip":          to_string(parsed.src_ip) ?? "::",
+        "src_port":        to_int(parsed.src_port) ?? 0,
+        "dst_ip":          to_string(parsed.dst_ip) ?? "::",
+        "dst_port":        to_int(parsed.dst_port) ?? 0,
+        "transport":       downcase(to_string(parsed.transport) ?? "udp"),
+        "method":          to_string(parsed.method) ?? "",
+        "response_code":   response_code,
+        "response_phrase": to_string(parsed.response_phrase) ?? "",
+        "call_id":         to_string(parsed.call_id) ?? "",
+        "from_uri":        to_string(parsed.from_uri) ?? "",
+        "to_uri":          to_string(parsed.to_uri) ?? "",
+        "user_agent":      to_string(parsed.user_agent) ?? "",
+        "cseq":            to_string(parsed.cseq) ?? "",
+        "body_size":       to_int(parsed.body_size) ?? 0,
+        "raw_message":     to_string(parsed.raw_message) ?? raw,
+        "attack_id":       "",
+        "mitre_technique": "",
+      }
+
+  parse_wazuh_alert:
+    type: remap
+    inputs: [wazuh_alerts]
+    drop_on_error: true
+    drop_on_abort: true
+    source: |
+      raw = .message
+      parsed, err = parse_json(raw)
+      if err != null {
+        abort
+      }
+
+      ts, terr = parse_timestamp(parsed.timestamp, format: "%Y-%m-%dT%H:%M:%S%.f%z")
+      if terr != null {
+        ts = now()
+      }
+
+      rule_groups = []
+      if is_array(parsed.rule.groups) {
+        rule_groups = parsed.rule.groups
+      }
+
+      rule_mitre_id = []
+      if is_array(parsed.rule.mitre.id) {
+        rule_mitre_id = parsed.rule.mitre.id
+      }
+
+      . = {
+        "alert_time":       format_timestamp!(ts, format: "%Y-%m-%d %H:%M:%S%.3f"),
+        "agent_id":         to_string(parsed.agent.id) ?? "",
+        "agent_name":       to_string(parsed.agent.name) ?? "",
+        "rule_id":          to_int(parsed.rule.id) ?? 0,
+        "rule_level":       to_int(parsed.rule.level) ?? 0,
+        "rule_description": to_string(parsed.rule.description) ?? "",
+        "rule_groups":      rule_groups,
+        "rule_mitre_id":    rule_mitre_id,
+        "srcip":            to_string(parsed.data.srcip) ?? (to_string(parsed.srcip) ?? ""),
+        "location":         to_string(parsed.location) ?? "",
+        "raw_message":      raw,
+      }
+
+sinks:
+  # All four ClickHouse sinks use a disk buffer with when_full: block.
+  #
+  #  - Without an explicit buffer, Vector defaults to a 500-event in-memory
+  #    buffer whose overflow behavior drops events when ClickHouse is slow,
+  #    restarting, or rejecting writes - the exact mechanism behind the earlier
+  #    silent raw_logs data loss. A disk buffer instead spools to
+  #    /var/lib/vector (persistent named volume) and survives Vector restarts.
+  #  - when_full: block (not drop_newest): when even the 256 MiB disk buffer is
+  #    exhausted, Vector applies backpressure to the source instead of
+  #    discarding. All our sources are checkpointed file sources, so "blocking"
+  #    just pauses the file tailer - the data stays in the producers' log files
+  #    on their own volumes and is read once ClickHouse catches up. Nothing is
+  #    lost unless the producer itself rotates the file away, and that window
+  #    is now observable (vector_buffer_byte_size / discarded_events in
+  #    Prometheus) instead of silent. drop_newest would trade durability for
+  #    liveness we don't need - this is an evidence pipeline; losing attack
+  #    telemetry is worse than reading logs late.
+  #  - max_size 268435488 = 256 MiB + 32 B, Vector's hard minimum for disk
+  #    buffers (values below it fail validation). 4 sinks x 256 MiB bounds the
+  #    vector_data volume's worst case at ~1 GiB.
+  ch_raw_logs:
+    type: clickhouse
+    inputs: [parse_asterisk]
+    endpoint: http://clickhouse:8123
+    database: ngn_sip
+    table: raw_logs
+    auth:
+      strategy: basic
+      user: "${CLICKHOUSE_USER}"
+      password: "${CLICKHOUSE_PASSWORD}"
+    skip_unknown_fields: true
+    encoding:
+      timestamp_format: rfc3339
+    buffer:
+      type: disk
+      max_size: 268435488
+      when_full: block
+
+  ch_suricata_alerts:
+    type: clickhouse
+    inputs: [parse_suricata_alerts]
+    endpoint: http://clickhouse:8123
+    database: ngn_sip
+    table: suricata_alerts
+    auth:
+      strategy: basic
+      user: "${CLICKHOUSE_USER}"
+      password: "${CLICKHOUSE_PASSWORD}"
+    skip_unknown_fields: true
+    encoding:
+      timestamp_format: rfc3339
+    buffer:
+      type: disk
+      max_size: 268435488
+      when_full: block
+
+  ch_wazuh_alerts:
+    type: clickhouse
+    inputs: [parse_wazuh_alert]
+    endpoint: http://clickhouse:8123
+    database: ngn_sip
+    table: wazuh_alerts
+    auth:
+      strategy: basic
+      user: "${CLICKHOUSE_USER}"
+      password: "${CLICKHOUSE_PASSWORD}"
+    skip_unknown_fields: true
+    encoding:
+      timestamp_format: rfc3339
+    buffer:
+      type: disk
+      max_size: 268435488
+      when_full: block
+
+  ch_sip_events:
+    type: clickhouse
+    inputs: [parse_suricata_sip, parse_hep_sip]
+    endpoint: http://clickhouse:8123
+    database: ngn_sip
+    table: sip_events
+    auth:
+      strategy: basic
+      user: "${CLICKHOUSE_USER}"
+      password: "${CLICKHOUSE_PASSWORD}"
+    skip_unknown_fields: true
+    encoding:
+      timestamp_format: rfc3339
+    buffer:
+      type: disk
+      max_size: 268435488
+      when_full: block
+
+  # Prometheus scrapes this on sip_lab at vector:9598 (job "vector" in
+  # observability/prometheus/prometheus.yml); also published on the host
+  # loopback as 127.0.0.1:9598 for ad-hoc curl. Key series:
+  #   vector_buffer_byte_size / vector_buffer_max_byte_size  (buffer fill)
+  #   vector_buffer_discarded_events_total                   (buffer drops)
+  #   vector_component_discarded_events_total                (transform/sink drops)
+  #   vector_component_errors_total                          (e.g. CH 400s)
+  vector_metrics:
+    type: prometheus_exporter
+    inputs: [internal_metrics]
+    address: "0.0.0.0:9598"

@@ -1,0 +1,12 @@
+---
+- name: Configure Shuffle SOAR
+  hosts: shuffle-01
+  become: true
+  roles:
+    - common
+  tasks:
+    - name: Record Shuffle target version
+      ansible.builtin.debug:
+        msg: "Install Shuffle v1.4.0-compatible open-source deployment and Wazuh webhook workflow in implementation pass."
+      tags: [shuffle, soar, scaffold]
+

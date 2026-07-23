@@ -1,0 +1,119 @@
+{{- if .Values.tiers.bootstrapJobs }}
+# ===========================================================================
+# Bootstrap Jobs — the Kubernetes equivalent of `make bootstrap`.
+# Modeled as Helm post-install/post-upgrade HOOKS so they run once the core
+# workloads exist. Each mirrors an existing repo script; the command shown is a
+# documented placeholder (the real script must be baked into a small bootstrap
+# image or mounted) so the chart lints without shipping unверified automation.
+# hook-weights order them: SSO clients -> Shuffle -> Wazuh localfiles.
+# ===========================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bootstrap-sso-clients
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "bootstrap") | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "bootstrap") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: setup-sso
+          image: {{ .Values.images.keycloak | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          command: ["/bin/sh", "-c"]
+          # Equivalent of scripts/setup_keycloak_sso_clients.sh: provisions the
+          # grafana / wazuh-dashboard / shuffle / homer / dashboard OIDC clients
+          # against http://keycloak:8080 using kcadm.sh.
+          args:
+            - |
+              echo "bootstrap: create/update Keycloak OIDC clients against http://keycloak:8080"
+              echo "port of scripts/setup_keycloak_sso_clients.sh — kcadm.sh config credentials + create clients"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bootstrap-shuffle
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "bootstrap") | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "bootstrap") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: provision-shuffle
+          image: {{ .Values.images.dashboard | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          command: ["/bin/sh", "-c"]
+          # Equivalent of scripts/provision_shuffle.sh: imports the Stage-3 SIP
+          # triage workflow + variables against http://shuffle-backend:5001.
+          args:
+            - |
+              echo "bootstrap: port of scripts/provision_shuffle.sh against http://shuffle-backend:5001"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bootstrap-wazuh-localfiles
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "bootstrap") | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "bootstrap") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: register-localfiles
+          image: {{ .Values.images.wazuhManager | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          command: ["/bin/sh", "-c"]
+          # In Compose the manager self-heals localfiles via an entrypoint
+          # script (siem/wazuh/bootstrap/register_localfiles.sh) on every start.
+          # On K8s the equivalent is either that same init-script baked into the
+          # manager image OR this Job re-registering the <localfile>/<integration>
+          # blocks (ml/stage1.json, kamailio-sec.log, Shuffle integration).
+          args:
+            - |
+              echo "bootstrap: register Wazuh <localfile> entries for ml/stage1.json + ngnsec/kamailio-sec.log"
+              echo "port of siem/wazuh/bootstrap/register_localfiles.sh"
+{{- end }}

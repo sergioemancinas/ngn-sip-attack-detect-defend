@@ -1,0 +1,116 @@
+{{/*
+ConfigMaps for the configs that Compose bind-mounts read-only. Populated from
+files copied into this chart's files/ tree (kept in sync with the repo configs).
+Each is mounted read-only at the same in-container path the Compose stack used.
+*/}}
+{{- if .Values.tiers.clickhouse }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickhouse-init
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "clickhouse") | nindent 4 }}
+data:
+  {{- (.Files.Glob "files/clickhouse-init/*.sql").AsConfig | nindent 2 }}
+{{- end }}
+{{- if or .Values.tiers.postgres .Values.tiers.homer }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "postgres") | nindent 4 }}
+data:
+  {{- (.Files.Glob "files/postgres-init/*.sql").AsConfig | nindent 2 }}
+{{- end }}
+{{- if .Values.tiers.vector }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vector-config
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "vector") | nindent 4 }}
+data:
+  {{- (.Files.Glob "files/vector/vector.yaml").AsConfig | nindent 2 }}
+{{- end }}
+{{- if .Values.tiers.prometheus }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "prometheus") | nindent 4 }}
+data:
+  {{- (.Files.Glob "files/prometheus/prometheus.yml").AsConfig | nindent 2 }}
+{{- end }}
+{{- if .Values.tiers.grafana }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "grafana") | nindent 4 }}
+data:
+  {{- (.Files.Glob "files/grafana/provisioning/datasources/*.yml").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "grafana") | nindent 4 }}
+data:
+  {{- (.Files.Glob "files/grafana/provisioning/dashboards/*.yml").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "grafana") | nindent 4 }}
+data:
+  {{- (.Files.Glob "files/grafana/provisioning/dashboards/*.json").AsConfig | nindent 2 }}
+{{- end }}
+{{- if .Values.tiers.edge }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kamailio-cfg
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "kamailio") | nindent 4 }}
+data:
+  {{- (.Files.Glob "files/kamailio/kamailio.cfg").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kamailio-modules
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "kamailio") | nindent 4 }}
+data:
+  {{- (.Files.Glob "files/kamailio/modules/*.cfg").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: suricata-config
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "suricata") | nindent 4 }}
+data:
+  {{- (.Files.Glob "files/suricata/suricata.yaml").AsConfig | nindent 2 }}
+  {{- (.Files.Glob "files/suricata/*.config").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: suricata-rules
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "suricata") | nindent 4 }}
+data:
+  {{- (.Files.Glob "files/suricata/rules/*.rules").AsConfig | nindent 2 }}
+{{- end }}

@@ -1,0 +1,22 @@
+title: Kamailio NGN-SEC Security Event
+id: bd82bda8-92e1-438d-906a-443f24decaa7
+name: kamailio_ngn_sec_event
+status: test
+description: Detects any project-tagged Kamailio NGN-SEC security event decoded from the SIP control plane.
+references:
+  - https://attack.mitre.org/techniques/T1078/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio syslog event with the NGN-SEC tag decoded into event_type, srcip, user_agent, and reason.
+detection:
+  selection:
+    event_type|exists: true
+    srcip|exists: true
+  condition: selection
+falsepositives:
+  - Expected lab security-event emission during controlled attack replay.
+level: low
+tags:
+  - attack.initial_access
+  - attack.t1078

@@ -1,0 +1,44 @@
+title: Kamailio NGN-SEC SUBSCRIBE Event
+id: 193fc11b-60a6-4992-b3a7-b8029f0acaf6
+name: kamailio_subscribe_event
+status: test
+description: Source event for SIP SUBSCRIBE rate-based correlations.
+references:
+  - https://attack.mitre.org/techniques/T1499/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio NGN-SEC event_type and srcip fields decoded by siem/wazuh/decoders/kamailio.xml.
+detection:
+  selection:
+    event_type: SUBSCRIBE
+  condition: selection
+falsepositives:
+  - Normal presence subscriptions when used without rate correlation.
+level: informational
+tags:
+  - attack.impact
+  - attack.t1499
+---
+title: SIP SUBSCRIBE Flood From Single Source
+id: 2888b15e-4a4e-4e00-aae2-34b0bf6e09a1
+status: test
+description: Detects twenty or more Kamailio NGN-SEC SUBSCRIBE events from the same source IP within 60 seconds.
+references:
+  - https://attack.mitre.org/techniques/T1499/
+correlation:
+  type: event_count
+  rules:
+    - kamailio_subscribe_event
+  group-by:
+    - srcip
+  timespan: 60s
+  condition:
+    gte: 20
+  generate: true
+falsepositives:
+  - Legitimate BLF or presence resubscription storm after an outage.
+level: medium
+tags:
+  - attack.impact
+  - attack.t1499

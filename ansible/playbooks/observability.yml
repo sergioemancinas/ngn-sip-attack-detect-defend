@@ -1,0 +1,12 @@
+---
+- name: Configure observability stack
+  hosts: observability
+  become: true
+  roles:
+    - common
+  tasks:
+    - name: Record observability target versions
+      ansible.builtin.debug:
+        msg: "Install pinned ClickHouse 25.8.21.7, Vector 0.54.0, Grafana OSS 11.6.0, Prometheus 3.11.2, Loki 3.6.10, Tempo 2.7.1, HEPlify-server v1.60.0/Homer 7."
+      tags: [observability, scaffold]
+

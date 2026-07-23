@@ -1,0 +1,20 @@
+title: SIP Transport Downgrade Indicator
+id: 6e6dc151-0448-4a63-937a-b8802b5e3476
+status: test
+description: Detects Kamailio NGN-SEC reason strings indicating SIP transport downgrade from TCP or TLS to UDP.
+references:
+  - https://attack.mitre.org/techniques/T1557/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio NGN-SEC reason field decoded by siem/wazuh/decoders/kamailio.xml.
+detection:
+  selection:
+    reason|re: '(?i)(tcp[-_ ]downgrade|sip[-_ ]over[-_ ]tcp[-_ ]downgrade|transport=tcp.*downgraded.*udp|mitm[-_ ]downgrade)'
+  condition: selection
+falsepositives:
+  - Intentional interop downgrade during a legacy trunk migration test.
+level: critical
+tags:
+  - attack.credential_access
+  - attack.t1557

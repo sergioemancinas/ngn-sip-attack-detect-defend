@@ -1,0 +1,283 @@
+# Observability stack: ClickHouse + Vector + Grafana + Prometheus.
+# Bind: all host ports on DEV_BIND_IP (default 127.0.0.1).
+# Network: joins the main 'sip_lab' bridge so Vector can read shared logs/volumes.
+# Memory: ClickHouse + Vector + Grafana + Prometheus ~1.4 GiB at idle; fits in Docker Desktop allocation.
+name: ngn-sip-observability
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3.18.7-alpine
+    environment:
+      CLICKHOUSE_DB: ngn_sip
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-ngn}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-local-only}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+      CLICKHOUSE_DO_NOT_CHOWN: 1
+    cap_drop:
+      - ALL
+    cap_add:
+      - IPC_LOCK
+      - NET_BIND_SERVICE
+      - SETGID
+      - SETUID
+      # KILL is required by the ClickHouse Alpine entrypoint: after running the
+      # docker-entrypoint-initdb.d schema files against a temporary server it
+      # signals that init process to shut down. Without KILL the init step fails
+      # with "kill: Operation not permitted" and the container exits 1 even
+      # though all schema SQL ran successfully.
+      - KILL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 1000
+    mem_limit: 1536m
+    cpus: 1.5
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+      - ./infra/clickhouse/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      # ClickHouse HTTP only on the host. The native TCP wire protocol (9000)
+      # is intentionally not host-published and unused from the host - Vector
+      # writes via http://clickhouse:8123 and Grafana queries via the proxied
+      # datasource, both on the sip_lab network. Use port-forward into the
+      # container if a clickhouse-client wire-protocol session is needed.
+      - "${DEV_BIND_IP:-127.0.0.1}:8123:8123"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --tries=1 'http://127.0.0.1:8123/ping' | grep -q Ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      sip_lab:
+        aliases:
+          - clickhouse
+
+  vector-init:
+    # One-shot: the image ships /var/lib/vector as root:root 0755, so a fresh
+    # named volume inherits root ownership and Vector (65534, read_only rootfs,
+    # cap_drop ALL) cannot write its disk buffers or checkpoints. Chown once,
+    # then exit; vector waits on service_completed_successfully.
+    image: timberio/vector:0.41.1-alpine
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c", "chown 65534:65534 /var/lib/vector && chmod 0700 /var/lib/vector"]
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    network_mode: none
+    restart: "no"
+    volumes:
+      - vector_data:/var/lib/vector
+
+  vector:
+    image: timberio/vector:0.41.1-alpine
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      vector-init:
+        condition: service_completed_successfully
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-ngn}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-local-only}
+    user: "65534:65534"
+    # The Wazuh manager writes alerts.json as wazuh:wazuh (uid/gid 999) with the
+    # alerts directory mode 0750 and the file mode 0640. Vector runs as nobody
+    # (65534), so without membership in the wazuh group it gets EACCES and the
+    # wazuh_alerts table stays empty. Add the wazuh gid (999) as a supplementary
+    # group so Vector can traverse the dir and read the group-readable alerts,
+    # without changing ownership or disturbing the Wazuh manager.
+    group_add:
+      - "999"
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    pids_limit: 200
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+    volumes:
+      # Disk buffers for the 4 ClickHouse sinks + file-source checkpoints
+      # (worst case ~1 GiB = 4 sinks x 256 MiB). A named volume, not tmpfs, so
+      # buffered-but-unflushed events survive a restart.
+      - vector_data:/var/lib/vector
+      - ./observability/vector/vector.yaml:/etc/vector/vector.yaml:ro
+      - asterisk_logs:/logs/asterisk:ro
+      - suricata_logs:/logs/suricata:ro
+      - type: volume
+        source: wazuh_manager_logs
+        target: /logs/wazuh
+        read_only: true
+        volume:
+          subpath: alerts
+      - type: volume
+        source: hep_bridge_logs
+        target: /logs/hep
+        read_only: true
+        volume:
+          subpath: .
+    ports:
+      # Vector's own metrics (buffer fill / drops / sink errors), loopback only.
+      # Prometheus scrapes vector:9598 in-network regardless.
+      - "${DEV_BIND_IP:-127.0.0.1}:9598:9598"
+    healthcheck:
+      test: ["CMD", "vector", "validate", "--no-environment", "/etc/vector/vector.yaml"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      sip_lab:
+        aliases:
+          - vector
+
+  grafana:
+    image: grafana/grafana:11.6.14
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me-local-only}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+      # Allow the stack dashboard to embed Grafana panels in an iframe, and let
+      # those iframes render without an interactive login (read-only viewer).
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-ngn}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-local-only}
+      # Keycloak OIDC SSO for Grafana (realm ngn-sip-lab, client grafana).
+      # Split-horizon (mirrors the dashboard): the browser is sent to the
+      # tunnelled http://localhost:8080 for AUTH_URL, while the in-cluster
+      # backchannel (TOKEN_URL/API_URL) resolves keycloak:8080. The client
+      # secret and root URL are env-overridable so the operator can point this
+      # at https://grafana.ngn-sip.lab via .env without editing the compose.
+      # Defaults keep the current local behavior unchanged.
+      GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
+      GF_AUTH_GENERIC_OAUTH_NAME: "Keycloak"
+      GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP: "true"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "grafana"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: ${GRAFANA_OIDC_CLIENT_SECRET:-change-me-local-only}
+      GF_AUTH_GENERIC_OAUTH_SCOPES: "openid profile email"
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: "http://localhost:8080/realms/ngn-sip-lab/protocol/openid-connect/auth"
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: "http://keycloak:8080/realms/ngn-sip-lab/protocol/openid-connect/token"
+      GF_AUTH_GENERIC_OAUTH_API_URL: "http://keycloak:8080/realms/ngn-sip-lab/protocol/openid-connect/userinfo"
+      # Org-role mapping: the grafana client carries a realm-role protocol mapper
+      # (identity/keycloak/realm-export.json) that emits realm roles as a flat
+      # "roles" claim in the id_token/userinfo. Realm role wazuh-admin (held by
+      # lab-admin) maps to Grafana Admin; everyone else lands as Viewer.
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "contains(roles[*], 'wazuh-admin') && 'Admin' || 'Viewer'"
+      # lab-realm users may lack an email; log them in by username instead.
+      GF_AUTH_GENERIC_OAUTH_LOGIN_ATTRIBUTE_PATH: "preferred_username"
+      GF_AUTH_GENERIC_OAUTH_EMAIL_ATTRIBUTE_PATH: "email"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
+      GF_AUTH_OAUTH_AUTO_LOGIN: "false"
+      # Session and cookie lifetimes - no eternal cookies.
+      GF_AUTH_LOGIN_MAXIMUM_INACTIVE_LIFETIME_DURATION: "2h"
+      GF_AUTH_LOGIN_MAXIMUM_LIFETIME_DURATION: "8h"
+      GF_AUTH_TOKEN_ROTATION_INTERVAL_MINUTES: "10"
+      GF_SECURITY_LOGIN_REMEMBER_DAYS: "0"
+      GF_SECURITY_COOKIE_SECURE: "false"
+      GF_SECURITY_COOKIE_SAMESITE: "lax"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    pids_limit: 200
+    mem_limit: 512m
+    cpus: 0.75
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+      - /var/log/grafana:uid=472,gid=0,mode=0755,size=32m
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "${DEV_BIND_IP:-127.0.0.1}:3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --tries=1 'http://127.0.0.1:3000/api/health' >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      sip_lab:
+        aliases:
+          - grafana
+
+  prometheus:
+    image: prom/prometheus:v3.11.3
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=2GB
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    pids_limit: 200
+    mem_limit: 512m
+    cpus: 0.75
+    tmpfs:
+      - /tmp:mode=1777,size=32m
+    volumes:
+      - prometheus_data:/prometheus
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "${DEV_BIND_IP:-127.0.0.1}:9090:9090"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --tries=1 'http://127.0.0.1:9090/-/healthy' >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      sip_lab:
+        aliases:
+          - prometheus
+
+volumes:
+  clickhouse_data:
+  clickhouse_logs:
+  grafana_data:
+  prometheus_data:
+  vector_data:
+  asterisk_logs:
+    external: true
+    name: ngn-sip_asterisk_logs
+  suricata_logs:
+    external: true
+    name: ngn-sip-ids_suricata_logs
+  wazuh_manager_logs:
+    external: true
+    # Pinned explicitly in docker-compose.wazuh.yml to this stable name so the
+    # Vector source reads the same volume the Wazuh manager writes to.
+    name: ngn-sip-wazuh-manager-logs
+  hep_bridge_logs:
+    external: true
+    # Pinned explicitly in docker-compose.homer.yml to this stable name.
+    name: ngn-sip-hep-bridge-logs
+
+networks:
+  sip_lab:
+    external: true
+    name: ngn-sip_sip_lab

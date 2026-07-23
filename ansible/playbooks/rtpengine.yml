@@ -1,0 +1,12 @@
+---
+- name: Configure rtpengine relay
+  hosts: sip-rtpengine-01
+  become: true
+  roles:
+    - common
+  tasks:
+    - name: Record rtpengine target version
+      ansible.builtin.debug:
+        msg: "Install/configure rtpengine 10.5.3.5-compatible relay in implementation pass."
+      tags: [rtpengine, scaffold]
+

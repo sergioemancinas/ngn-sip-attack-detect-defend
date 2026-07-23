@@ -1,0 +1,38 @@
+# NGN SIP detection rules (Suricata)
+# rev 2026-07-01: added per-source rate limits to high-volume detections
+# and disabled pure-observation classifiers (1000010/1000011/1000014).
+# Rationale: those three fired once per SIP packet (~8.2M each) with no
+# threshold, generating ~25M of 28.3M alerts and filling the disk. The
+# `sip` eve protocol log already records every transaction for the ML
+# feature pipeline, so the classifier alerts add cost without detection value.
+
+# --- Reconnaissance: scanner user-agents (low volume, keep) ---
+alert sip any any -> any any (msg:"NGN SIP scanner UA SIPVicious friendly-scanner"; content:"User-Agent|3a|"; nocase; content:"friendly-scanner"; nocase; classtype:network-scan; sid:1000001; rev:1; metadata:mitre_tactic Reconnaissance, mitre_technique T1595, created_at 2026_04_29;)
+alert sip any any -> any any (msg:"NGN SIP scanner UA SIPVicious tool family"; pcre:"/User-Agent\s*:\s*(?:sipvicious|svmap|svwar|svcrack|svreport)/i"; classtype:network-scan; sid:1000002; rev:1; metadata:mitre_tactic Reconnaissance, mitre_technique T1595, created_at 2026_04_29;)
+alert sip any any -> any any (msg:"NGN SIP scanner UA sippts probe"; pcre:"/User-Agent\s*:\s*(?:sippts|sipscan|sipsend|sipenumerate|sipinvite)/i"; classtype:network-scan; sid:1000003; rev:1; metadata:mitre_tactic Discovery, mitre_technique T1046, created_at 2026_04_29;)
+
+# --- Flooding (already thresholded, behaved correctly) ---
+alert sip any any -> any any (msg:"NGN SIP REGISTER flood from single source"; sip.method; content:"REGISTER"; threshold:type threshold, track by_src, count 30, seconds 60; classtype:attempted-dos; sid:1000004; rev:1; metadata:mitre_tactic Impact, mitre_technique T1499, created_at 2026_04_29;)
+alert sip any any -> any any (msg:"NGN SIP OPTIONS scan burst from single source"; sip.method; content:"OPTIONS"; threshold:type threshold, track by_src, count 15, seconds 60; classtype:network-scan; sid:1000005; rev:1; metadata:mitre_tactic Discovery, mitre_technique T1046, created_at 2026_04_29;)
+
+# --- Malformed headers (added per-source limit: one alert per src per 60s) ---
+alert sip any any -> any any (msg:"NGN SIP malformed Via header missing transport"; content:"Via|3a|"; nocase; pcre:"/^(?:Via|v)\s*:\s*(?!SIP\/2\.0\/(?:UDP|TCP|TLS|WS|WSS))/mi"; threshold:type limit, track by_src, count 1, seconds 60; classtype:protocol-command-decode; sid:1000006; rev:2; metadata:mitre_tactic Initial_Access, mitre_technique T1190, created_at 2026_04_29, updated_at 2026_07_01;)
+alert sip any any -> any any (msg:"NGN SIP malformed CSeq header"; content:"CSeq|3a|"; nocase; pcre:"/^CSeq\s*:\s*(?![0-9]+\s+(?:INVITE|ACK|BYE|CANCEL|OPTIONS|REGISTER|PRACK|SUBSCRIBE|NOTIFY|PUBLISH|INFO|REFER|MESSAGE|UPDATE)\b)/mi"; threshold:type limit, track by_src, count 1, seconds 60; classtype:protocol-command-decode; sid:1000007; rev:2; metadata:mitre_tactic Initial_Access, mitre_technique T1190, created_at 2026_04_29, updated_at 2026_07_01;)
+alert sip any any -> any any (msg:"NGN SIP INVITE without Contact header"; sip.method; content:"INVITE"; pkt_data; content:!"Contact|3a|"; nocase; content:!"|0a|m|3a|"; nocase; classtype:protocol-command-decode; sid:1000008; rev:1; metadata:mitre_tactic Initial_Access, mitre_technique T1190, created_at 2026_04_29;)
+
+# --- Policy: REGISTER from outside trusted CIDR (added per-source limit) ---
+alert sip !$SIP_TRUSTED_NET any -> $HOME_NET any (msg:"NGN SIP REGISTER from source outside trusted CIDR"; sip.method; content:"REGISTER"; threshold:type limit, track by_src, count 2, seconds 60; classtype:policy-violation; sid:1000009; rev:2; metadata:mitre_tactic Credential_Access, mitre_technique T1110, created_at 2026_04_29, updated_at 2026_07_01;)
+
+# --- 1000010 / 1000011 disabled: pure REGISTER/INVITE observation classifiers.
+#     The `sip` eve protocol log already records every transaction for ML.
+# alert sip any any -> any any (msg:"NGN SIP classifier REGISTER request observed"; sip.method; content:"REGISTER"; classtype:protocol-command-decode; sid:1000010; rev:1; ...)
+# alert sip any any -> any any (msg:"NGN SIP classifier INVITE request observed"; sip.method; content:"INVITE"; classtype:protocol-command-decode; sid:1000011; rev:1; ...)
+
+# --- Credential-access signal: 403 response (low volume, keep) ---
+alert sip any any -> any any (msg:"NGN SIP forbidden response observed"; sip.stat_code; content:"403"; classtype:attempted-user; sid:1000012; rev:1; metadata:mitre_tactic Credential_Access, mitre_technique T1110, created_at 2026_04_29;)
+
+# --- Toll-fraud candidate: long numeric INVITE URI (added per-source limit) ---
+alert sip any any -> any any (msg:"NGN SIP long numeric INVITE URI toll-fraud candidate"; sip.method; content:"INVITE"; sip.uri; pcre:"/^sip:(?:\+|00|011)?[0-9]{10,}/i"; threshold:type limit, track by_src, count 2, seconds 60; classtype:policy-violation; sid:1000013; rev:3; metadata:mitre_tactic Impact, mitre_technique T1496, created_at 2026_04_29, updated_at 2026_07_01;)
+
+# --- 1000014 disabled: pure "SIP/2.0" protocol classifier, fired on every packet. ---
+# alert sip any any -> any any (msg:"NGN SIP protocol classifier SIP over parser"; sip.protocol; content:"SIP/2.0"; classtype:misc-activity; sid:1000014; rev:1; ...)

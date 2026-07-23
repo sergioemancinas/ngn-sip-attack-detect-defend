@@ -1,0 +1,67 @@
+title: Kamailio Premium Prefix Toll Fraud Dial Pattern
+id: 0ba81ed3-dfe9-474c-8cce-2ae93a2447fa
+name: kamailio_premium_prefix_toll_fraud
+status: test
+description: Detects Kamailio NGN-SEC INVITE events whose reason contains a high-risk premium-prefix destination. The outcome technique is T1496 (Resource Hijacking). Credential compromise (T1110) or valid-account abuse (T1078) may be the access vector but is not the mapped outcome.
+references:
+  - https://attack.mitre.org/techniques/T1496/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio NGN-SEC event_type and reason fields decoded by siem/wazuh/decoders/kamailio.xml.
+detection:
+  selection_event:
+    event_type: INVITE
+  selection_reason:
+    reason|re: '(?i)(?:ruri|dst|destination|dial)[:= ]\+?(?:1900|1809|1268|1976|976|979)\d{4,}'
+  condition: selection_event and selection_reason
+falsepositives:
+  - Approved premium service calls from authorized trunks in a controlled lab.
+level: high
+tags:
+  - attack.impact
+  - attack.t1496
+---
+title: Repeated Kamailio Premium Prefix Dial Attempts
+id: 45600e00-53ac-449c-b259-63427f9aea32
+status: test
+description: Detects three or more Kamailio premium-prefix INVITE attempts from the same source IP within 120 seconds. Outcome technique T1496 (Resource Hijacking).
+references:
+  - https://attack.mitre.org/techniques/T1496/
+correlation:
+  type: event_count
+  rules:
+    - kamailio_premium_prefix_toll_fraud
+  group-by:
+    - srcip
+  timespan: 120s
+  condition:
+    gte: 3
+  generate: true
+falsepositives:
+  - Auto-redial from a permitted outbound gateway.
+level: critical
+tags:
+  - attack.impact
+  - attack.t1496
+---
+title: Asterisk Premium Prefix Toll Fraud Dial Pattern
+id: 1cc945c2-cae0-49e5-bf2e-485dbe67c8ba
+status: test
+description: Detects Asterisk call-control messages that indicate dialing to high-risk premium prefixes. Outcome technique T1496 (Resource Hijacking).
+references:
+  - https://attack.mitre.org/techniques/T1496/
+logsource:
+  product: ngn-sip
+  service: asterisk-pjsip
+  definition: Asterisk full log decoded into module and message by siem/wazuh/decoders/asterisk.xml.
+detection:
+  selection:
+    message|re: '(?i)(dial|invite|request).*(?:sip:|\+)?(?:1900|1809|1268|1976|976|979)\d{4,}'
+  condition: selection
+falsepositives:
+  - Approved premium service usage by authorized business teams.
+level: high
+tags:
+  - attack.impact
+  - attack.t1496

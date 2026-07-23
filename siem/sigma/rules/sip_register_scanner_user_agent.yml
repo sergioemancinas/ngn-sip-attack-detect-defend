@@ -1,0 +1,23 @@
+title: SIP REGISTER From Blacklisted Scanner User Agent
+id: d3d46fbd-197c-4549-914e-b8e91478f2f2
+status: test
+description: Detects REGISTER traffic from a known SIP scanner User-Agent family.
+references:
+  - https://attack.mitre.org/techniques/T1595/001/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio NGN-SEC event_type and user_agent fields decoded by siem/wazuh/decoders/kamailio.xml.
+detection:
+  selection_event:
+    event_type: REGISTER
+  selection_ua:
+    user_agent|re: '(?i)(friendly-scanner|sipvicious|sipsak|svmap|svwar|svcrack|sippts(?:[-_/][a-z0-9._-]+)?)'
+  condition: selection_event and selection_ua
+falsepositives:
+  - Controlled offensive-security drills in a lab VLAN.
+level: high
+tags:
+  - attack.reconnaissance
+  - attack.credential_access
+  - attack.t1595.001

@@ -1,0 +1,98 @@
+{{- if .Values.tiers.keycloak }}
+# Keycloak (SSO IdP). Compose runs start-dev --import-realm. Not capability-
+# hardened in Compose; here we add a conservative drop-ALL / non-root context
+# (Keycloak binds 8080 unprivileged, so this is a safe improvement).
+# NOTE: start-dev is a DEV mode server (in-memory H2 by default, relaxed
+# hostname). For any real deployment switch to `start` + an external DB and a
+# proper KC_HOSTNAME. See docs/05_kubernetes_migration.md.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-realm
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "keycloak") | nindent 4 }}
+data:
+  {{- (.Files.Glob "files/keycloak/realm-export.json").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "keycloak") | nindent 4 }}
+spec:
+  selector:
+    {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "keycloak") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "keycloak") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "keycloak") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "keycloak") | nindent 8 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: keycloak
+          image: {{ .Values.images.keycloak | quote }}
+          imagePullPolicy: {{ include "ngn-sip.pullPolicy" . }}
+          args: ["start-dev", "--import-realm"]
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+            - name: KC_LEGACY_OBSERVABILITY_INTERFACE
+              value: "true"
+            - name: KEYCLOAK_ADMIN
+              value: {{ .Values.config.keycloakAdmin | quote }}
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: ngn-sip-secrets, key: KEYCLOAK_ADMIN_PASSWORD }
+            - name: KC_HOSTNAME
+              value: "http://localhost:8080"
+            - name: KC_HOSTNAME_STRICT
+              value: "false"
+            - name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC
+              value: "true"
+          ports:
+            - containerPort: 8080
+          resources:
+            {{- toYaml .Values.keycloak.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 40
+            periodSeconds: 15
+            failureThreshold: 12
+          volumeMounts:
+            - name: realm
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+      volumes:
+        - name: realm
+          configMap:
+            name: keycloak-realm
+{{- end }}

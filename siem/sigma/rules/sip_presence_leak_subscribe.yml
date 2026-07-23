@@ -1,0 +1,22 @@
+title: Presence Leak SUBSCRIBE Targeting
+id: d8ab9e3f-eb9c-420d-9be2-53cb277e67f8
+status: test
+description: Detects Kamailio NGN-SEC SUBSCRIBE events whose reason indicates presence enumeration or resource-list probing.
+references:
+  - https://attack.mitre.org/techniques/T1595/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio NGN-SEC event_type and reason fields decoded by siem/wazuh/decoders/kamailio.xml.
+detection:
+  selection_event:
+    event_type: SUBSCRIBE
+  selection_reason:
+    reason|re: '(?i)(presence[-_ ]leak|presence[-_ ]enum|dialog-info|message-summary|resource-list)'
+  condition: selection_event and selection_reason
+falsepositives:
+  - Valid receptionist BLF subscriptions if the endpoint is not allowlisted.
+level: high
+tags:
+  - attack.reconnaissance
+  - attack.t1595

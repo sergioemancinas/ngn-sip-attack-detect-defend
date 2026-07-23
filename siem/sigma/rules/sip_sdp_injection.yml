@@ -1,0 +1,22 @@
+title: SDP Injection Pattern In SIP INVITE
+id: f65c2625-579c-468d-aaa8-36ef4f10d95f
+status: test
+description: Detects Kamailio NGN-SEC INVITE events whose reason indicates an SDP injection or command-like SDP payload anomaly.
+references:
+  - https://attack.mitre.org/techniques/T1190/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio NGN-SEC event_type and reason fields decoded by siem/wazuh/decoders/kamailio.xml.
+detection:
+  selection_event:
+    event_type: INVITE
+  selection_reason:
+    reason|re: '(?i)(sdp[-_ ]injection|sdp[-_ ]payload[-_ ]anomaly|sdp.*(?:cmd=|wget|curl|powershell|;|\|\||&&))'
+  condition: selection_event and selection_reason
+falsepositives:
+  - Exotic SDP attributes from lab codecs.
+level: critical
+tags:
+  - attack.initial_access
+  - attack.t1190

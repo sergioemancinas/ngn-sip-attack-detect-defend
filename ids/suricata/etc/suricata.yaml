@@ -1,0 +1,55 @@
+%YAML 1.1
+---
+
+vars:
+  address-groups:
+    HOME_NET: "[10.0.0.0/8,172.16.0.0/12,192.168.0.0/16]"
+    EXTERNAL_NET: "!$HOME_NET"
+    SIP_TRUSTED_NET: "[10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8]"
+  port-groups:
+    SIP_PORTS: "[5060,5061]"
+
+default-rule-path: /etc/suricata/rules
+rule-files:
+  - sip.rules
+
+classification-file: /etc/suricata/classification.config
+reference-config-file: /etc/suricata/reference.config
+
+af-packet:
+  - interface: any
+    cluster-id: 99
+    cluster-type: cluster_flow
+    defrag: yes
+
+app-layer:
+  protocols:
+    sip:
+      enabled: yes
+
+unix-command:
+  enabled: yes
+  filename: /var/log/suricata/suricata-command.socket
+
+outputs:
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: /var/log/suricata/eve.json
+      types:
+        - alert:
+            tagged-packets: yes
+        - http:
+            extended: yes
+        - dns:
+            query: yes
+            answer: yes
+        - tls:
+            extended: yes
+        - sip
+        - anomaly
+        - flow
+  - fast:
+      enabled: no
+  - unified2-alert:
+      enabled: no

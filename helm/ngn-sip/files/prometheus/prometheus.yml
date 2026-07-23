@@ -1,0 +1,41 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090
+
+  - job_name: kamailio
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - kamailio:8089
+
+  - job_name: asterisk
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - asterisk:8088
+
+  - job_name: rtpengine
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - rtpengine:9900
+
+  # Vector internal telemetry (prometheus_exporter sink in
+  # observability/vector/vector.yaml). Makes ingest-pipeline failures visible:
+  # vector_component_discarded_events_total, vector_component_errors_total,
+  # vector_buffer_byte_size vs vector_buffer_max_byte_size (disk-buffer fill),
+  # vector_buffer_discarded_events_total. Silent drops (like the raw_logs
+  # ClickHouse-400 loss) now show up here instead of vanishing.
+  - job_name: vector
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - vector:9598
+
+  # Planned: add ml_exporter:9101 here after the Stage 1/Stage 2 exporter
+  # service lands in docker-compose.ml.yml.

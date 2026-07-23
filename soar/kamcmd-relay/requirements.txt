@@ -1,0 +1,4 @@
+# Intentionally empty: relay.py uses only the Python 3.11 standard library
+# (http.server, http.client over AF_UNIX for the Docker Engine API, urllib for
+# ClickHouse HTTP, ipaddress/hmac/json for validation and auth).
+# Pin any future dependency here with an exact version (pkg==x.y.z).

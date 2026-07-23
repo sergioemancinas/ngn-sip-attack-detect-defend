@@ -1,0 +1,274 @@
+# -----------------------------------------------------------------------------
+# Purpose: Shuffle SOAR stack for local SIP alert triage and response workflows.
+# Ports (loopback only): 3001/tcp (UI), 5001/tcp (API/webhooks).
+# Memory budget: ~2.5 GiB total for this stack; OpenSearch heap fixed to 512 MiB.
+# Security disclaimer: loopback-only local development - replace OpenSearch security
+# disabled with TLS+OIDC before any non-loopback exposure.
+# -----------------------------------------------------------------------------
+name: ngn-sip-soar
+
+services:
+  shuffle-frontend:
+    image: ghcr.io/shuffle/shuffle-frontend:v2.2.0
+    container_name: shuffle-frontend
+    hostname: shuffle-frontend
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - NET_BIND_SERVICE
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 200
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "${DEV_BIND_IP:-127.0.0.1}:3001:80"
+    environment:
+      BACKEND_HOSTNAME: shuffle-backend
+      FRONTEND_PORT: "3001"
+    depends_on:
+      shuffle-backend:
+        condition: service_healthy
+    networks:
+      sip_lab:
+        aliases:
+          - shuffle-frontend
+    healthcheck:
+      test: ["CMD-SHELL", "curl --silent --fail http://127.0.0.1/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+
+  shuffle-backend:
+    image: ghcr.io/shuffle/shuffle-backend:v2.2.0
+    container_name: shuffle-backend
+    hostname: shuffle-backend
+    restart: unless-stopped
+    mem_limit: 640m
+    cpus: 0.75
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 300
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "${DEV_BIND_IP:-127.0.0.1}:5001:5001"
+    environment:
+      ENVIRONMENT_NAME: onprem
+      BACKEND_HOSTNAME: shuffle-backend
+      BACKEND_PORT: "5001"
+      FRONTEND_PORT: "3001"
+      BASE_URL: http://shuffle-backend:5001
+      # Keycloak OIDC SSO (gated). SSO_REDIRECT_URL is the only env knob Shuffle
+      # reads for OpenID; the rest (client id/secret, authorization URL, token
+      # URL) lives in the org's sso_config, persisted in OpenSearch. It is NOT
+      # UI-only: `scripts/provision_shuffle.sh --sso` sets it over the REST API
+      # (POST /api/v1/orgs/<id> with {"editing": "sso_config", ...} - the
+      # editing flag is required or the backend silently ignores the payload).
+      # The admin UI (Organization -> OpenID Connect) edits the same object.
+      # Empty default = unchanged behavior (Shuffle derives the redirect from
+      # the request host). Set this to the front-end URL (http://localhost:3001
+      # locally, or https://shuffle.ngn-sip.lab) to pin the OpenID redirect.
+      # Split-horizon: Authorization URL http://localhost:8080/... (browser)
+      # and Token URL http://keycloak:8080/... (backchannel). Keycloak redirect
+      # URI: <SSO_REDIRECT_URL>/api/v1/login_openid. See docs/sso/sso_runbook.md.
+      SSO_REDIRECT_URL: ${SHUFFLE_SSO_REDIRECT_URL:-}
+      SHUFFLE_DEFAULT_USERNAME: ${SHUFFLE_DEFAULT_USERNAME:-change-me-local-only}
+      SHUFFLE_DEFAULT_PASSWORD: ${SHUFFLE_DEFAULT_PASSWORD:-change-me-local-only}
+      SHUFFLE_DEFAULT_APIKEY: ${SHUFFLE_DEFAULT_APIKEY:-change-me-local-only}
+      SHUFFLE_ENCRYPTION_MODIFIER: ${SHUFFLE_ENCRYPTION_MODIFIER:-change-me-local-only}
+      SHUFFLE_APP_HOTLOAD_FOLDER: /shuffle-apps
+      SHUFFLE_FILE_LOCATION: /shuffle-files
+      SHUFFLE_ELASTIC: "true"
+      OPENSEARCH_URL: http://shuffle-opensearch:9200
+      SHUFFLE_OPENSEARCH_URL: http://shuffle-opensearch:9200
+      SHUFFLE_OPENSEARCH_SKIPSSL_VERIFY: "true"
+      SHUFFLE_OPENSEARCH_USERNAME: ${SHUFFLE_OPENSEARCH_USERNAME:-change-me-local-only}
+      SHUFFLE_OPENSEARCH_PASSWORD: ${SHUFFLE_OPENSEARCH_PASSWORD:-change-me-local-only}
+    volumes:
+      - shuffle_apps:/shuffle-apps
+      - shuffle_files:/shuffle-files
+    depends_on:
+      shuffle-opensearch:
+        condition: service_healthy
+    networks:
+      sip_lab:
+        aliases:
+          - shuffle-backend
+    healthcheck:
+      test: ["CMD-SHELL", "pidof shufflebackend >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 6
+      start_period: 45s
+
+  shuffle-orborus:
+    image: ghcr.io/shuffle/shuffle-orborus:v2.2.0
+    container_name: shuffle-orborus
+    hostname: shuffle-orborus
+    restart: unless-stopped
+    mem_limit: 384m
+    cpus: 0.5
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 200
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    environment:
+      ENVIRONMENT_NAME: onprem
+      ORG_ID: Shuffle
+      BASE_URL: http://shuffle-backend:5001
+      AUTH_FOR_ORBORUS: ${AUTH_FOR_ORBORUS:-change-me-local-only}
+      DOCKER_API_VERSION: "1.40"
+      ORBORUS_EXECUTION_CONCURRENCY: "2"
+      SHUFFLE_ORBORUS_EXECUTION_CONCURRENCY: "2"
+      SHUFFLE_APP_HOTLOAD_FOLDER: /shuffle-apps
+      SHUFFLE_WORKER_IMAGE: ghcr.io/shuffle/shuffle-worker:v2.2.0
+      OPENSEARCH_URL: http://shuffle-opensearch:9200
+      SHUFFLE_OPENSEARCH_URL: http://shuffle-opensearch:9200
+      SHUFFLE_OPENSEARCH_SKIPSSL_VERIFY: "true"
+      SHUFFLE_OPENSEARCH_USERNAME: ${SHUFFLE_OPENSEARCH_USERNAME:-change-me-local-only}
+      SHUFFLE_OPENSEARCH_PASSWORD: ${SHUFFLE_OPENSEARCH_PASSWORD:-change-me-local-only}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - shuffle_apps:/shuffle-apps
+    depends_on:
+      shuffle-backend:
+        condition: service_healthy
+    networks:
+      sip_lab:
+        aliases:
+          - shuffle-orborus
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /var/run/docker.sock && pidof orborus >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  shuffle-opensearch:
+    # Shuffle upstream support targets OpenSearch 2.x for on-prem deployments.
+    image: opensearchproject/opensearch:2.19.5
+    container_name: shuffle-opensearch
+    hostname: shuffle-opensearch
+    restart: unless-stopped
+    mem_limit: 1280m
+    cpus: 1.5
+    cap_drop:
+      - ALL
+    cap_add:
+      - IPC_LOCK
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 1000
+    environment:
+      discovery.type: single-node
+      cluster.name: shuffle-cluster
+      node.name: shuffle-opensearch
+      bootstrap.memory_lock: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      DISABLE_PERFORMANCE_ANALYZER_AGENT_CLI: "true"
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${SHUFFLE_OPENSEARCH_PASSWORD:-change-me-local-only}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - shuffle_opensearch_data:/usr/share/opensearch/data
+    networks:
+      sip_lab:
+        aliases:
+          - shuffle-opensearch
+    healthcheck:
+      test: ["CMD-SHELL", "curl --silent --fail http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 45s
+
+  # Ban enforcement endpoint for the Stage-3 Shuffle workflow. Shuffle workers
+  # on sip_lab cannot run `docker exec`, so this relay does it for them using
+  # the identical kamcmd htable.sets ban_table contract as kamailio-autoban
+  # (siem/wazuh/active-response/autoban_loop.sh). Aliased kamcmd-relay to avoid
+  # colliding with the kamailio-sec-relay log-tailer sidecar; the workflow's
+  # KAMCMD_BLOCK_RELAY_URL must be http://kamcmd-relay:8099/kamcmd-block.
+  kamcmd-relay:
+    build: ./soar/kamcmd-relay
+    image: ngn-sip/kamcmd-relay:1.0.0
+    container_name: ngn-sip-kamcmd-relay-1
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    pids_limit: 100
+    mem_limit: 128m
+    cpus: 0.5
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+    environment:
+      PORT: "8099"
+      # Shared bearer secret; the Shuffle workflow presents the same token.
+      RELAY_TOKEN: ${KAMCMD_BLOCK_RELAY_TOKEN:-change-me-local-only}
+      KAMAILIO_CTR: ${COMPOSE_PROJECT_NAME:-ngn-sip}-kamailio-1
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-ngn}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-local-only}
+      # Lab posture: attacker containers live on the 172.x sip_lab bridge, so
+      # RFC1918 sources must be bannable (same as autoban's Wazuh path). The
+      # never-ban allowlist still protects the stack's own containers.
+      RELAY_ALLOW_PRIVATE: ${RELAY_ALLOW_PRIVATE:-1}
+      PROTECTED_CONTAINERS: >-
+        ${COMPOSE_PROJECT_NAME:-ngn-sip}-asterisk-1
+        ${COMPOSE_PROJECT_NAME:-ngn-sip}-kamailio-1
+        ${COMPOSE_PROJECT_NAME:-ngn-sip}-rtpengine-1
+        ${COMPOSE_PROJECT_NAME:-ngn-sip}-prometheus-1
+        ${COMPOSE_PROJECT_NAME:-ngn-sip}-vector-1
+        ${COMPOSE_PROJECT_NAME:-ngn-sip}-clickhouse-1
+        ${COMPOSE_PROJECT_NAME:-ngn-sip}-kamailio-sec-relay-1
+        ${COMPOSE_PROJECT_NAME:-ngn-sip}-postgres-1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8099/healthz',timeout=3).status==200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      sip_lab:
+        aliases:
+          - kamcmd-relay
+
+volumes:
+  shuffle_apps:
+  shuffle_files:
+  shuffle_opensearch_data:
+
+networks:
+  sip_lab:
+    external: true
+    name: ngn-sip_sip_lab

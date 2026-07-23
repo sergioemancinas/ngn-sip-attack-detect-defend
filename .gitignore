@@ -1,0 +1,78 @@
+# Secrets and local overrides
+.env
+.env.*
+!.env.example
+infra/tls/*
+!infra/tls/README.md
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Docker and runtime state
+*.log
+logs/
+tmp/
+
+# Capture and data artifacts
+*.pcap
+*.pcapng
+data/external/*
+data/synthetic/*
+data/wild/*
+data/pcaps/*
+ids/suricata/pcaps/*
+!data/**/README.md
+!ids/suricata/pcaps/README.md
+
+# Model artifacts and notebooks
+/models/
+.ipynb_checkpoints/
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
+
+# Python build / coverage / packaging artifacts
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Generic build artifacts
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+core
+core.*
+
+
+# Node (defensive — keeps accidental npm installs out of git)
+node_modules/
+
+# Local API tokens and secrets exports (never commit, even in tarballs)
+secrets/
+*.pem
+*.key
+!infra/tls/README.md
+
+# ML generated artifacts (not source)
+mlruns/
+ml/**/mlruns/
+ml/**/models/
+*.bak
+*.joblib
+
+# Dashboard build artifacts
+dashboard/.next/
+dashboard/node_modules/
+dashboard/tsconfig.tsbuildinfo
+.venv-verify/

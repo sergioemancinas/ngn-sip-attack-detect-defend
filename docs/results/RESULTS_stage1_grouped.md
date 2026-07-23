@@ -1,7 +1,7 @@
 # Stage 1 Detection Results, Leakage-Free Protocol
 
-This supersedes the headline binary number in `RESULTS_stage1_naive_leaky.md` and
-`RESULTS_c3_comparison.md`. Those reported XGBoost binary F1 = 0.988 from
+This supersedes an earlier headline binary number (also cited in
+`RESULTS_c3_comparison.md`): XGBoost binary F1 = 0.988 from
 **5-fold StratifiedKFold on windows**, which lets windows from the same attack run (same
 source IP) fall in both train and eval. Because each attack run uses one static source IP
 and produces several 5-minute windows, that is per-campaign leakage. This run re-evaluates
@@ -49,7 +49,7 @@ cheap, honest follow-up that should lift F1 without retraining.
 
 ## DoS now joins (the "0 joinable" was the Suricata outage)
 
-`RESULTS_stage1_naive_leaky.md` recorded DoS as 0 joinable rows. That was not a structural
+The earlier naive-CV run recorded DoS as 0 joinable rows. That was not a structural
 bug: Suricata, the source of `sip_events` (and therefore of every feature window), had been
 blind from 2026-06-02 17:38 until it was fixed on 2026-06-10, so the June 3 DoS floods
 (`172.18.200.20-23`) ran during the blind window and were never captured. After the fix,

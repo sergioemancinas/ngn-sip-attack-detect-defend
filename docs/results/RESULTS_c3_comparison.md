@@ -32,9 +32,10 @@ This is the first run where all three arms were live simultaneously.
 | Wazuh (PIKE only) | correlation / rate-based | 0.14 (6/42) | **0.00 (0/12)** | 1.00 | 0.25 |
 | XGBoost | behavioural ML | ~1.00 | **0.00** | ~0.98 | **0.99 ± 0.015** |
 
-ML figures are the stratified 5-fold CV result from
-`RESULTS_stage1_naive_leaky.md` on the cumulative labeled dataset (which includes
-these sources); the rule-based arms are measured directly on this campaign.
+ML figures are the stratified 5-fold CV result on the cumulative labeled dataset
+(which includes these sources) and are leakage-inflated; the leakage-free figure
+(binary F1 0.75) is in `RESULTS_stage1_grouped.md`. The rule-based arms are
+measured directly on this campaign.
 
 ## The finding (publishable)
 

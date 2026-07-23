@@ -48,7 +48,6 @@ Detections drive an audited automated response through Kamailio active response 
 - Container images are pinned to explicit versions; Dependabot tracks base images, pip, npm, and Actions.
 - No secrets in the repository. Configuration comes from `.env`, copied from the `.env.example` placeholders, and CI runs a blocking Gitleaks scan.
 - CI workflows run with least-privilege permissions (`contents: read`); an OpenSSF Scorecard workflow and a release SBOM track supply-chain posture.
-- Continuous application-security analysis runs through [Aikido](https://www.aikido.dev/) on every push (SAST, software-composition analysis, secret detection, and IaC scanning), with findings tracked in the Aikido dashboard.
 
 ## Architecture
 

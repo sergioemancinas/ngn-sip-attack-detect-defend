@@ -1,4 +1,4 @@
-FROM debian:12-slim@sha256:f9c6a2fd2ddbc23e336b6257a5245e31f996953ef06cd13a59fa0a1df2d5c252 AS build
+FROM debian:13-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd AS build
 
 ARG ASTERISK_VERSION=20.19.0
 ARG ASTERISK_COMMIT=f66917fe6da487155f80ab50403bf3d7bdc86183
@@ -73,7 +73,7 @@ RUN apt-mark manual \
         wget \
     && rm -rf /usr/src/asterisk /var/lib/apt/lists/*
 
-FROM debian:12-slim@sha256:f9c6a2fd2ddbc23e336b6257a5245e31f996953ef06cd13a59fa0a1df2d5c252
+FROM debian:13-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd
 
 COPY --from=build / /
 

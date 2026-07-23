@@ -1,4 +1,4 @@
-FROM debian:12-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818 AS build
+FROM debian:13-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd AS build
 
 ARG SIPP_VERSION=v3.7.3
 ARG SIPP_COMMIT=11b51748b274d24ac156ac40216600aca0f352a7
@@ -24,7 +24,7 @@ RUN cmake . -DUSE_SSL=1 -DUSE_PCAP=1 -DUSE_SCTP=1 \
     && make -j"$(nproc)" \
     && install -m 0755 sipp /usr/local/bin/sipp
 
-FROM debian:12-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
+FROM debian:13-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd
 
 RUN apt-get update \
     && apt-get upgrade -y \

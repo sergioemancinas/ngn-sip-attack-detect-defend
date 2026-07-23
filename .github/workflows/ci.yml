@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Shell syntax
         run: |
@@ -65,7 +65,7 @@ jobs:
           - docker-compose.soar.yml
           - docker-compose.wazuh.yml
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Validate Compose config
         run: docker compose -f "${{ matrix.compose }}" config --quiet
 
@@ -74,7 +74,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build Kamailio image
         run: docker compose build --pull kamailio
       - name: Validate Kamailio config
@@ -85,8 +85,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -112,7 +112,7 @@ jobs:
     timeout-minutes: 25
     needs: validate-compose
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Create external Compose resources
         run: |
           docker network create ngn-sip_sip_lab || true

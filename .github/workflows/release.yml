@@ -47,7 +47,7 @@ jobs:
     permissions:
       contents: write  # attach the SBOM to the release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       # Syft generates a CycloneDX SBOM over the repo (pip, npm, Dockerfiles),
@@ -63,6 +63,6 @@ jobs:
           # its artifact and otherwise fails with "Resource not accessible").
           upload-release-assets: false
       - name: Attach SBOM to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: sbom.cyclonedx.json

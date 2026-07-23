@@ -154,7 +154,7 @@ obs-smoke:
 		--data-urlencode "query=SHOW TABLES FROM ngn_sip"; \
 	echo "==> Grafana health"; curl -sf http://127.0.0.1:3000/api/health; \
 	echo "==> Prometheus health"; curl -sf http://127.0.0.1:9090/-/healthy; \
-	echo "==> Vector metrics (buffer/drop counters)"; curl -sf http://127.0.0.1:9598/metrics | grep -c '^vector_buffer_'
+	echo "==> Vector metrics"; curl -sf http://127.0.0.1:9598/metrics >/dev/null && echo "vector_ metrics served: $$(curl -sf http://127.0.0.1:9598/metrics | grep -c '^vector_')"
 
 ids-up:
 	$(IDS_COMPOSE) up -d

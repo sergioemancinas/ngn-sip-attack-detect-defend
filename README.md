@@ -32,8 +32,7 @@ Detections drive an audited automated response through Kamailio active response 
 - [ML triage](#ml-triage)
 - [Results](#results)
 - [Quick start](#quick-start)
-- [Access](#access)
-- [Components](#components)
+- [Services and access](#services-and-access)
 - [Continuous integration](#continuous-integration)
 - [Repository layout](#repository-layout)
 - [Deployment](#deployment)
@@ -45,7 +44,7 @@ Detections drive an audited automated response through Kamailio active response 
 ## Security posture
 
 - No privileged containers. Every service runs with `no-new-privileges` and `cap_drop: ALL`, re-adding only the capabilities it needs.
-- Container images are pinned to explicit versions; Dependabot tracks base images, pip, npm, and Actions.
+- Container base images are pinned by digest and GitHub Actions by commit SHA; Dependabot tracks base images, pip, npm, and Actions.
 - No secrets in the repository. Configuration comes from `.env`, copied from the `.env.example` placeholders, and CI runs a blocking Gitleaks scan.
 - CI workflows run with least-privilege permissions (`contents: read`); an OpenSSF Scorecard workflow and a release SBOM track supply-chain posture.
 
@@ -185,56 +184,9 @@ make e2e                      # drive labeled attack traffic and assert every ri
 
 `make bootstrap` and `make e2e` are safe to re-run. Host ports bind to loopback (`127.0.0.1`) via `DEV_BIND_IP`. Use `localhost` in the browser so OIDC state cookies survive the Keycloak redirect.
 
-## Access
+## Services and access
 
-`ngn-sip.lab` is a private placeholder TLD resolved through local hosts entries, not a registered domain. Caddy fronts each web UI on its own `*.ngn-sip.lab` hostname with a `tls internal` certificate; reach them through an SSH tunnel to the Caddy port and map the hostnames to `127.0.0.1`. Keycloak is not proxied. Setup and OIDC callback steps are in [`docs/13_https_reverse_proxy.md`](docs/13_https_reverse_proxy.md).
-
-| Service | Direct loopback | Auth | Login |
-|---|---|---|---|
-| Dashboard | http://127.0.0.1:3002 | Keycloak OIDC (open in loopback dev) | `lab-admin`, set at first login |
-| Grafana | http://127.0.0.1:3000 | Local or Keycloak OIDC | `admin` / `${GRAFANA_ADMIN_PASSWORD}`, or Keycloak `lab-admin` |
-| Wazuh Dashboard | https://127.0.0.1:5601 | Keycloak OIDC only | `lab-admin`, set at first login |
-| Shuffle | http://127.0.0.1:3001 | Local (first-run wizard) | set during setup |
-| Prometheus | http://127.0.0.1:9090 | None (loopback only) | n/a |
-| ClickHouse HTTP | http://127.0.0.1:8123 | Basic auth | `ngn` / `change-me-local-only` |
-| Keycloak admin | http://127.0.0.1:8080 | Local (`master` realm) | `admin` / `${KEYCLOAK_ADMIN_PASSWORD}` |
-
-Passwords shown are local lab defaults. Rotate them and set `KC_HOSTNAME_STRICT` before any non-loopback exposure.
-
-## Components
-
-| Service | Role | How to use it |
-|---|---|---|
-| Kamailio (5060/udp) | SIP proxy. Routes REGISTER/INVITE/BYE, runs the NGN-SEC xlog filter, owns the `ban_table` htable used by active response. | `docker exec ngn-sip-kamailio-1 kamcmd htable.dump ban_table`. Driven by `make smoke`. |
-| Asterisk | PBX. Terminates SIPp UAs and emits `chan_pjsip` auth-failed events the Wazuh decoder reads. | `docker compose logs asterisk`. |
-| rtpengine | RTP relay (userspace on Mac, kernel-mode on the VM). | `docker exec ngn-sip-rtpengine-1 rtpengine-ctl list sessions`. |
-| PostgreSQL + pgvector | Subscriber database and vector store for Stage-2 RAG context. | PSQL to `127.0.0.1:5432`. |
-| ClickHouse (8123) | OLAP store for `sip_events`, `attack_labels`, `suricata_alerts`, `wazuh_alerts`, `ml_scores`, `llm_verdicts`, `ban_audit`, `soar_cases`. | `curl -u ngn:change-me-local-only "http://localhost:8123/?query=SELECT count() FROM ngn_sip.suricata_alerts"`. |
-| Vector | Log shipper. Tails Asterisk, Suricata `eve.json`, Wazuh alerts, and HEP rows into ClickHouse with disk-backed buffers and Prometheus-visible drop counters. | Metrics at http://localhost:9598/metrics. |
-| Suricata | Signature IDS on the SIP bridge, sharing Kamailio's network namespace. | Generate traffic, then read `suricata_alerts` in ClickHouse. |
-| Wazuh manager / indexer / dashboard | SIEM. Loads the project decoders plus the SIP correlation rules (100100-100134) and the ML rules (100150/100151), and drives active response. | `docker exec -i ngn-sip-wazuh-manager-1 /var/ossec/bin/wazuh-logtest`. |
-| Keycloak (8080) | Identity provider. `master` realm for admin, `ngn-sip-lab` realm for the OIDC clients (wazuh-dashboard, grafana, shuffle, homer, dashboard). | Admin console at http://localhost:8080/admin. |
-| Shuffle (3001) | SOAR. Receives the Wazuh webhook on `rule_level >= 10`, enriches from ClickHouse (`ml_scores`, `llm_verdicts`, `suricata_alerts`), applies a graded policy, bans through the kamcmd-relay only when corroborated, and records `ngn_sip.soar_cases`. | `make soar-up && make shuffle-provision`. |
-| Ollama | Stage-2 LLM triage worker. Reads Stage-1 detections, classifies with `qwen2.5:7b-instruct` (the deployed default, pulled by `make ml-pull`), and writes advisory verdicts. The paper's Stage-2 benchmark used the smaller `qwen2.5:3b` for CPU-bound latency. | `make ml-up && make ml-pull`. Worker in `ml/stage2/`. |
-| Homer + heplify | HEP capture of full SIP request and response detail for the C1 response-level features. | `make homer-up`. See [`docs/C1_HEP_RESPONSE_FEATURES.md`](docs/C1_HEP_RESPONSE_FEATURES.md). |
-| Grafana (3000) | Seven provisioned dashboards (D1-D7) over ClickHouse and Prometheus. | Sign in with Keycloak, then open D1-D7. |
-| Prometheus (9090) | Metrics for Kamailio, Asterisk, rtpengine, ClickHouse, Vector, and the Wazuh indexer JVM. | Query `up` at http://localhost:9090. |
-
-### Grafana dashboards
-
-Auto-provisioned from `observability/grafana/provisioning/dashboards/`.
-
-| Dashboard | Shows |
-|---|---|
-| D1 SIP Overview | REGISTER/INVITE/BYE rates, top source IPs, response-code distribution, failed-auth ratio. |
-| D2 Attack Timeline | Suricata alerts, ground-truth labels, and Wazuh alerts on one timeline. |
-| D3 Suricata Detection | Alerts per signature, top source IPs, severity distribution. |
-| D4 Attack Evidence | 24-hour rollup of ground truth versus Suricata hits and recent `attack_labels`. |
-| D5 System Health | Prometheus `up` per target, ClickHouse query rate, table row counts. |
-| D6 MITRE Coverage | Suricata signatures versus ground truth by MITRE technique and phase. |
-| D7 Wazuh SIP Correlation | SIP rules 100100-100134 and ML rules 100150/100151 alert feed, rule table, ban triggers. |
-
-A panel that reads "No data" means the underlying ClickHouse table is empty. Drive attack traffic, then it populates.
+Per-service roles, loopback URLs and login details, and the seven provisioned Grafana dashboards (D1-D7) are documented in [`docs/SERVICES.md`](docs/SERVICES.md). Everything binds to loopback by default; the credentials listed there are local lab defaults, to be rotated before any non-loopback exposure.
 
 ## Continuous integration
 

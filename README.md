@@ -5,7 +5,6 @@
 ![Loopback-only lab](https://img.shields.io/badge/deployment-loopback--only%20lab-orange)
 
 [![CI](https://github.com/sergioemancinas/ngn-sip-attack-detect-defend/actions/workflows/ci.yml/badge.svg)](https://github.com/sergioemancinas/ngn-sip-attack-detect-defend/actions/workflows/ci.yml)
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/sergioemancinas/ngn-sip-attack-detect-defend/badge)](https://securityscorecards.dev/viewer/?uri=github.com/sergioemancinas/ngn-sip-attack-detect-defend)
 
 ## Demo
 
@@ -174,7 +173,7 @@ Requires Docker (Engine 26+) with about 18 GiB available to the VM. On macOS, Co
 
 ```bash
 git clone <this-repository>
-cd sip-attack-detect-defend
+cd ngn-sip-attack-detect-defend
 cp .env.example .env
 
 make up-all                   # base, IDS, Keycloak, Wazuh, Homer, observability

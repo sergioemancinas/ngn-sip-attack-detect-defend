@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   echo "Usage: $0 <owner/repo> [branch]"
-  echo "Example: $0 sergioemancinas/ngn-sip-detect-defend main"
+  echo "Example: $0 sergioemancinas/ngn-sip-attack-detect-defend main"
 }
 
 if ! command -v gh >/dev/null 2>&1; then
@@ -22,9 +22,9 @@ owner="${repo_full%%/*}"
 repo="${repo_full##*/}"
 
 checks='[
-  "CI / lint-and-smoke",
-  "ShellCheck / shellcheck",
-  "Container Vulnerability Gate / Trivy fixable C/H gate"
+  "CI / Lint / static checks",
+  "CI / Observability smoke",
+  "ShellCheck / shellcheck"
 ]'
 
 patch_payload="$(mktemp)"

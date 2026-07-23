@@ -121,18 +121,12 @@ services:
       - ./observability/vector/vector.yaml:/etc/vector/vector.yaml:ro
       - asterisk_logs:/logs/asterisk:ro
       - suricata_logs:/logs/suricata:ro
-      - type: volume
-        source: wazuh_manager_logs
-        target: /logs/wazuh
-        read_only: true
-        volume:
-          subpath: alerts
-      - type: volume
-        source: hep_bridge_logs
-        target: /logs/hep
-        read_only: true
-        volume:
-          subpath: .
+      # Whole-volume mounts (no subpath) so the observability stack starts even
+      # when the Wazuh/HEP stacks have not run yet and the volumes are empty;
+      # Vector's file sources tolerate a missing include path and pick the file
+      # up when it appears. The Wazuh manager writes alerts under alerts/.
+      - wazuh_manager_logs:/logs/wazuh:ro
+      - hep_bridge_logs:/logs/hep:ro
     ports:
       # Vector's own metrics (buffer fill / drops / sink errors), loopback only.
       # Prometheus scrapes vector:9598 in-network regardless.

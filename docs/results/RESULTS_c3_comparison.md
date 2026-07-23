@@ -6,8 +6,7 @@ This is the first run where all three arms were live simultaneously.
 
 > **Status: inconclusive.** The confidence intervals overlap, so no arm is shown
 > as significantly better. A clean re-run on a properly isolated split (and the
-> `compare.py` OOF-shape fix it needs) is tracked as future work in
-> [#46](https://github.com/sergioemancinas/sip-attack-detect-defend/issues/46).
+> `compare.py` OOF-shape fix it needs) is tracked as future work.
 
 ## Method
 

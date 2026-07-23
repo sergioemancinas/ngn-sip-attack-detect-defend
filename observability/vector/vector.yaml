@@ -37,7 +37,7 @@ sources:
   wazuh_alerts:
     type: file
     include:
-      - /logs/wazuh/alerts.json
+      - /logs/wazuh/alerts/alerts.json
     read_from: beginning
     ignore_older_secs: 86400
 

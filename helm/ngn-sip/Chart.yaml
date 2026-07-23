@@ -19,11 +19,11 @@ keywords:
   - suricata
   - clickhouse
   - soar
-home: https://github.com/ngn-sip/sip-attack-detect-defend
+home: https://github.com/sergioemancinas/ngn-sip-attack-detect-defend
 maintainers:
   - name: NGN SIP lab
 sources:
-  - https://github.com/ngn-sip/sip-attack-detect-defend
+  - https://github.com/sergioemancinas/ngn-sip-attack-detect-defend
 annotations:
   # Honesty marker for reviewers: not every Compose tier is production-ready on K8s.
   ngn-sip.io/deployable-now: "observability, keycloak, ml, dashboard, homer, wazuh-indexer"

@@ -1,8 +1,8 @@
 # Security Policy
 
 This is a research and lab project: a reproducible SIP attack-detect-defend
-testbed built for an MSc lab course and an accompanying paper. It is not a
-production system and ships no production deployment.
+testbed with an accompanying paper. It is not a production system and ships no
+production deployment.
 
 ## Reporting a vulnerability
 
@@ -23,9 +23,8 @@ branches receive no fixes.
 
 Some weaknesses are part of the testbed's design, not vulnerabilities:
 
-- Intentionally weak demo SIP credentials (e.g. extensions `1000`/`1001` with
-  passwords `1000pass`/`1001pass`) exist so the attack scripts have something
-  to brute-force. They are lab fixtures.
+- Intentionally weak demo SIP credentials (placeholders in `.env.example`) exist
+  so the attack scripts have something to brute-force. They are lab fixtures.
 - Attack scripts under `attacks/` are offensive by design and must only be run
   against the lab stack itself.
 - Placeholder values in `.env.example` are not secrets; real deployments must

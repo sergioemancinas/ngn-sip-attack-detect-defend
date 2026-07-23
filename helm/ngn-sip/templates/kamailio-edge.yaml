@@ -1,0 +1,189 @@
+{{- if .Values.tiers.edge }}
+# ===========================================================================
+# SIP EDGE — DESIGN-ONLY (renders and is structurally correct, but NOT certified
+# on Kubernetes; do not treat the response/ban path as working here).
+#
+# BLOCKER 2 (shared netns) — SOLVED structurally:
+#   Compose runs Suricata with `network_mode: container:ngn-sip-kamailio-1` so it
+#   sniffs Kamailio's SIP traffic. The clean K8s translation is a SINGLE POD with
+#   Kamailio + Suricata as co-containers: all containers in a Pod share the pod
+#   network namespace, so Suricata on eth0 sees exactly the SIP edge traffic.
+#
+# BLOCKER 1 (no Docker socket) — DESIGNED, not enabled by default:
+#   autoban_loop.sh and kamcmd-relay enforce bans via `docker exec kamailio
+#   kamcmd htable.sets ban_table <ip> 1`. Kubernetes has no Docker socket. The
+#   designed replacement uses Kamailio's OWN control interface, which is ALREADY
+#   loaded (kamailio.cfg: `loadmodule "ctl.so"` + `loadmodule "jsonrpcs.so"`,
+#   `modparam("ctl","binrpc","unix:/run/kamailio/kamailio_ctl")`):
+#     * In-pod enforcement sidecar (below, edge.enforcementSidecar.enabled):
+#       shares the /run/kamailio emptyDir with Kamailio and runs
+#       `kamcmd htable.sets ban_table <ip> 1` against the UNIX ctl socket
+#       directly — no docker exec, no network. This is the drop-in for the ban
+#       WRITE that autoban/kamcmd-relay perform today.
+#     * Cross-pod (Wazuh-manager-driven autoban, separate pod): expose jsonrpc
+#       over TCP (jsonrpcs + a tcp/http transport) so a remote enforcer can call
+#       htable.sets. This requires a kamailio.cfg change (add the transport) and
+#       is a documented PREREQUISITE — see docs/05_kubernetes_migration.md.
+#   The sidecar defaults OFF because the ban path is not yet certified; enabling
+#   it renders the container but does not make the closed loop verified.
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: kamailio
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "kamailio") | nindent 4 }}
+spec:
+  type: {{ .Values.edge.service.type }}
+  selector:
+    {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "kamailio") | nindent 4 }}
+  ports:
+    - name: sip-udp
+      port: {{ .Values.edge.service.sipPort }}
+      targetPort: 5060
+      protocol: UDP
+    - name: sip-tcp
+      port: {{ .Values.edge.service.sipPort }}
+      targetPort: 5060
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kamailio
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "kamailio") | nindent 4 }}
+  annotations:
+    ngn-sip.io/status: "design-only"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "kamailio") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "kamailio") | nindent 8 }}
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        # ---------------------- Kamailio (SBC) ----------------------------
+        - name: kamailio
+          image: {{ .Values.images.kamailio | quote }}
+          imagePullPolicy: {{ include "ngn-sip.pullPolicy" . }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["NET_BIND_SERVICE", "NET_RAW"]
+          ports:
+            - containerPort: 5060
+              protocol: UDP
+            - containerPort: 5060
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.edge.kamailio.resources | nindent 12 }}
+          volumeMounts:
+            - name: kamailio-cfg
+              mountPath: /etc/kamailio/kamailio.cfg
+              subPath: kamailio.cfg
+              readOnly: true
+            - name: kamailio-modules
+              mountPath: /etc/kamailio/modules
+              readOnly: true
+            # binrpc ctl socket lives here; shared with the enforcement sidecar.
+            - name: ctl
+              mountPath: /run/kamailio
+            - name: tmp
+              mountPath: /tmp
+        # ---------------------- Suricata (IDS sidecar) --------------------
+        # Shares this Pod's network namespace with Kamailio (== Compose
+        # network_mode: container:kamailio). Sniffs eth0.
+        - name: suricata
+          image: {{ .Values.images.suricata | quote }}
+          imagePullPolicy: {{ include "ngn-sip.pullPolicy" . }}
+          args: ["-i", "eth0", "--runmode", "workers", "-c", "/etc/suricata/suricata.yaml"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "NET_ADMIN", "NET_RAW"]
+          resources:
+            {{- toYaml .Values.edge.suricata.resources | nindent 12 }}
+          volumeMounts:
+            - name: suricata-config
+              mountPath: /etc/suricata/suricata.yaml
+              subPath: suricata.yaml
+              readOnly: true
+            - name: suricata-config
+              mountPath: /etc/suricata/classification.config
+              subPath: classification.config
+              readOnly: true
+            - name: suricata-config
+              mountPath: /etc/suricata/reference.config
+              subPath: reference.config
+              readOnly: true
+            - name: suricata-rules
+              mountPath: /etc/suricata/rules
+              readOnly: true
+            # eve.json onto the shared RWX PVC (subPath suricata) so Vector tails
+            # it (Compose: suricata_logs volume mounted RO by Vector).
+            - name: shared-logs
+              mountPath: /var/log/suricata
+              subPath: suricata
+        {{- if .Values.edge.enforcementSidecar.enabled }}
+        # ------------- Enforcement sidecar (Blocker 1, DESIGN-ONLY) --------
+        # Replaces `docker exec kamailio kamcmd ...` with a local kamcmd call
+        # over the shared binrpc unix socket at /run/kamailio/kamailio_ctl.
+        # Ships a minimal HTTP endpoint mirroring the kamcmd-relay contract
+        # (POST /kamcmd-block -> htable.sets ban_table <ip> 1). NOT CERTIFIED.
+        - name: kamcmd-enforcer
+          image: {{ .Values.images.kamailio | quote }}
+          imagePullPolicy: {{ include "ngn-sip.pullPolicy" . }}
+          command: ["/bin/sh", "-c", "echo 'DESIGN-ONLY: run kamcmd against /run/kamailio/kamailio_ctl here'; sleep infinity"]
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: RELAY_TOKEN
+              valueFrom:
+                secretKeyRef: { name: ngn-sip-secrets, key: KAMCMD_BLOCK_RELAY_TOKEN }
+          resources:
+            requests: { cpu: "50m", memory: "32Mi" }
+            limits:   { cpu: "250m", memory: "128Mi" }
+          volumeMounts:
+            - name: ctl
+              mountPath: /run/kamailio
+            - name: tmp
+              mountPath: /tmp
+        {{- end }}
+      volumes:
+        - name: kamailio-cfg
+          configMap:
+            name: kamailio-cfg
+        - name: kamailio-modules
+          configMap:
+            name: kamailio-modules
+        - name: suricata-config
+          configMap:
+            name: suricata-config
+        - name: suricata-rules
+          configMap:
+            name: suricata-rules
+        - name: shared-logs
+          persistentVolumeClaim:
+            claimName: ngn-sip-shared-logs
+        - name: ctl
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+{{- end }}

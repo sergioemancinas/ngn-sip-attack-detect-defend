@@ -1,0 +1,44 @@
+title: Kamailio NGN-SEC REGISTER Event
+id: 3f1a4a6e-0dd3-4290-b1da-4c82ac69581e
+name: kamailio_register_event
+status: test
+description: Source event for SIP REGISTER rate-based correlations.
+references:
+  - https://attack.mitre.org/techniques/T1499/002/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio NGN-SEC event_type and srcip fields decoded by siem/wazuh/decoders/kamailio.xml.
+detection:
+  selection:
+    event_type: REGISTER
+  condition: selection
+falsepositives:
+  - Normal registration refresh traffic when used without rate correlation.
+level: informational
+tags:
+  - attack.impact
+  - attack.t1499.002
+---
+title: SIP REGISTER Flood From Single Source
+id: 2e1302e9-276d-47f7-8cc6-cb38a7d07640
+status: test
+description: Detects thirty or more Kamailio NGN-SEC REGISTER events from the same source IP within 60 seconds.
+references:
+  - https://attack.mitre.org/techniques/T1499/002/
+correlation:
+  type: event_count
+  rules:
+    - kamailio_register_event
+  group-by:
+    - srcip
+  timespan: 60s
+  condition:
+    gte: 30
+  generate: true
+falsepositives:
+  - Broken registration timers or endpoint reboot storms.
+level: high
+tags:
+  - attack.impact
+  - attack.t1499.002

@@ -1,0 +1,98 @@
+---
+- name: Install Debian/Ubuntu baseline packages
+  ansible.builtin.apt:
+    name:
+      - auditd
+      - ca-certificates
+      - chrony
+      - curl
+      - fail2ban
+      - jq
+      - nftables
+      - qemu-guest-agent
+      - rsyslog
+      - unattended-upgrades
+    state: present
+    update_cache: true
+  when: ansible_facts.os_family == "Debian"
+  tags: [common, packages]
+
+- name: Install RedHat-family baseline packages
+  ansible.builtin.dnf:
+    name:
+      - audit
+      - ca-certificates
+      - chrony
+      - curl
+      - fail2ban
+      - fapolicyd
+      - jq
+      - nftables
+      - qemu-guest-agent
+      - rsyslog
+    state: present
+  when: ansible_facts.os_family == "RedHat"
+  tags: [common, packages]
+
+- name: Ensure nftables is enabled
+  ansible.builtin.service:
+    name: nftables
+    enabled: true
+    state: started
+  tags: [common, firewall]
+
+- name: Ensure audit service is enabled on Debian/Ubuntu
+  ansible.builtin.service:
+    name: auditd
+    enabled: true
+    state: started
+  when: ansible_facts.os_family == "Debian"
+  tags: [common, audit]
+
+- name: Ensure audit service is enabled on RedHat-family systems
+  ansible.builtin.service:
+    name: auditd
+    enabled: true
+    state: started
+  when: ansible_facts.os_family == "RedHat"
+  tags: [common, audit]
+
+- name: Ensure qemu guest agent is enabled
+  ansible.builtin.service:
+    name: qemu-guest-agent
+    enabled: true
+    state: started
+  tags: [common, guest_agent]
+
+- name: Disable SSH password authentication
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?PasswordAuthentication\\s+"
+    line: "PasswordAuthentication no"
+    validate: "sshd -t -f %s"
+  notify: restart ssh
+  tags: [common, ssh]
+
+- name: Disable SSH root login
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?PermitRootLogin\\s+"
+    line: "PermitRootLogin no"
+    validate: "sshd -t -f %s"
+  notify: restart ssh
+  tags: [common, ssh]
+
+- name: Set explicit SSH port
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?Port\\s+"
+    line: "Port 2222"
+    validate: "sshd -t -f %s"
+  notify: restart ssh
+  tags: [common, ssh]
+
+- name: Keep placeholder credential policy visible
+  ansible.builtin.debug:
+    msg: "Committed scaffolding may contain only change-me-local-only placeholders; real values must come from Vault."
+  tags: [common, secrets]
+

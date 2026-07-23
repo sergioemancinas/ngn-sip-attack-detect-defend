@@ -1,0 +1,170 @@
+# ML stack: Ollama (local LLM runtime) + future Stage 1 / Stage 2 services.
+# Default model is NOT auto-pulled - bandwidth respect. After 'make ml-up':
+#   make ml-pull        # pulls qwen2.5:7b-instruct-q4_K_M (~4.5 GB)
+# Apple Silicon: Ollama runs natively on ARM64 inside Docker; Metal acceleration is NOT
+# available to containers, so M1/M2 inference is CPU-only here. For real-time triage,
+# run Ollama on the host (brew install ollama) and point Stage 2 at host.docker.internal.
+name: ngn-sip-ml
+
+services:
+  ollama:
+    image: ollama/ollama:0.22.0
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 300
+    # 10g, not 6g: the qwen2.5:7b blob is mmap'd as ~4.7 GiB of reclaimable
+    # page cache, and Ollama's scheduler counts that toward "used" when
+    # deciding if the ~4.3 GiB runtime working set fits. At 6g a warm reload
+    # (after the KEEP_ALIVE idle-unload) failed with "model request too large"
+    # and every Stage-2 triage silently degraded to needs_review. 10g lets the
+    # cached weights and the working set coexist.
+    mem_limit: 10g
+    cpus: 2.0
+    environment:
+      OLLAMA_KEEP_ALIVE: "30m"
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      # Reserve headroom over the model's runtime working set. See mem_limit.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+    volumes:
+      - ollama_models:/root/.ollama
+    ports:
+      - "${DEV_BIND_IP:-127.0.0.1}:11434:11434"
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    networks:
+      sip_lab:
+        aliases:
+          - ollama
+
+  # Stage 1 online scorer: reads ngn_sip.sip_features_5min (ClickHouse native,
+  # alias clickhouse:9000), scores with the XGBoost multiclass pipeline +
+  # IsolationForest baseline, writes ngn_sip.ml_scores, and appends a JSON
+  # event per scored window to the shared wazuh_manager_logs volume so the
+  # Wazuh manager picks it up via a <localfile> (ml/deploy/setup_stage1_localfile.sh)
+  # and fires rules 100150/100151 (siem/wazuh/rules/ml_rules.xml).
+  stage1-scorer:
+    image: ngn-sip/stage1-scorer:0.1.0
+    build:
+      context: ./ml/deploy
+    depends_on:
+      ollama:
+        condition: service_started
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "9000"
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-ngn}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-local-only}
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-ngn_sip}
+      SCORE_INTERVAL_SECONDS: "60"
+      MODEL_PATH: /models/stage1_pipeline.joblib
+      ISOFOREST_PATH: /models/isoforest_pipeline.joblib
+      CLASSES_PATH: /models/classes.json
+      ML_LOG_PATH: /var/ossec/logs/ml/stage1.json
+    # DAC_OVERRIDE: the shared wazuh_manager_logs volume is owned by the Wazuh
+    # manager (wazuh:wazuh gid 999, mode 0770); the scorer runs as its own
+    # unprivileged user, so it needs this one capability to create ml/ and
+    # append stage1.json there. Everything else is dropped.
+    cap_drop: [ALL]
+    cap_add: [DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 200
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:mode=1777,size=32m
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./ml/deploy/models:/models:ro
+      - wazuh_manager_logs:/var/ossec/logs
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os; from clickhouse_driver import Client; c=Client(host=os.environ.get('CLICKHOUSE_HOST','clickhouse'), port=int(os.environ.get('CLICKHOUSE_PORT','9000')), user=os.environ.get('CLICKHOUSE_USER','ngn'), password=os.environ.get('CLICKHOUSE_PASSWORD',''), database=os.environ.get('CLICKHOUSE_DATABASE','ngn_sip'), connect_timeout=5); c.execute('SELECT 1')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
+    networks:
+      sip_lab:
+        aliases:
+          - stage1-scorer
+
+  # Stage 2 advisory triage worker: tails the Wazuh manager alerts.json (shared
+  # wazuh_manager_logs, read-only) for rule 100150/100151 hits, sends the
+  # sanitized Stage-1 detection to Ollama for triage, retrieves RAG context
+  # from pgvector, and writes advisory verdicts to ngn_sip.llm_verdicts. Never
+  # overrides a Stage-1 detection.
+  stage2-worker:
+    image: ngn-sip/stage2-worker:0.1.0
+    build:
+      context: ./ml/stage2
+    depends_on:
+      ollama:
+        condition: service_started
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b-instruct-q4_K_M}
+      OLLAMA_TIMEOUT_SECONDS: "60"
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "9000"
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-ngn}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-local-only}
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-ngn_sip}
+      POSTGRES_DSN: postgresql://${POSTGRES_USER:-ngn}:${POSTGRES_PASSWORD:-change-me-local-only}@postgres:5432/${POSTGRES_DB:-ngn_sip}
+      OLLAMA_EMBED_MODEL: nomic-embed-text
+      RAG_EMBED_DIMENSION: "768"
+      STAGE2_STATE_FILE: /state/stage1_alerts.offset
+    cap_drop: [ALL]
+    cap_add: [DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 100
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - wazuh_manager_logs:/var/ossec/logs:ro
+      - stage2_state:/state
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os; from clickhouse_driver import Client; c=Client(host=os.environ.get('CLICKHOUSE_HOST','clickhouse'), port=int(os.environ.get('CLICKHOUSE_PORT','9000')), user=os.environ.get('CLICKHOUSE_USER','ngn'), password=os.environ.get('CLICKHOUSE_PASSWORD',''), database=os.environ.get('CLICKHOUSE_DATABASE','ngn_sip'), connect_timeout=5); c.execute('SELECT 1')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 6
+      start_period: 20s
+    networks:
+      sip_lab:
+        aliases:
+          - stage2-worker
+
+volumes:
+  ollama_models:
+  stage2_state:
+  # Owned by docker-compose.wazuh.yml (pinned to this literal name there).
+  # Referenced external so stage1-scorer can write /var/ossec/logs/ml/stage1.json
+  # and stage2-worker can read alerts.json without either compose owning the
+  # other's volume. Run `make wazuh-up` before `make ml-up` so it exists.
+  wazuh_manager_logs:
+    external: true
+    name: ngn-sip-wazuh-manager-logs
+
+networks:
+  sip_lab:
+    external: true
+    name: ngn-sip_sip_lab

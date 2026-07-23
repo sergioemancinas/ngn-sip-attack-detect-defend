@@ -1,0 +1,368 @@
+# Wazuh stack: cert generator + manager + indexer (OpenSearch fork) + dashboard.
+# Bind: dashboard/indexer + manager API/agent ports on DEV_BIND_IP loopback only.
+# Memory: ~4-6 GB combined; bump Docker Desktop -> Settings -> Resources -> Memory to 12 GB+
+# before running 'make wazuh-up'. Indexer JVM heap pinned at 1g via OPENSEARCH_JAVA_OPTS.
+# Apple Silicon: Wazuh images run under linux/amd64 emulation in this lab profile.
+name: ngn-sip-wazuh
+
+services:
+  wazuh-certs-generator:
+    image: wazuh/wazuh-certs-generator:0.0.4
+    platform: linux/amd64
+    hostname: wazuh-certs-generator
+    restart: "no"
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE, SETUID, SETGID]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 100
+    mem_limit: 256m
+    cpus: 0.25
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        if [ -f /certificates/root-ca.pem ] && [ -f /certificates/wazuh-indexer.pem ] && [ -f /certificates/wazuh-manager.pem ] && [ -f /certificates/wazuh-dashboard.pem ]; then
+          echo "Certificates already exist in wazuh_certs; skipping generation."
+        else
+          /entrypoint.sh
+        fi
+        # The named volume is owned root:root mode 500 by the upstream tool, which
+        # blocks UID 1000 (wazuh-indexer/wazuh-dashboard) and UID 999 (manager)
+        # from entering. Relax the dir to 555 - file modes (400) and per-file
+        # ownerships set by the tool keep the actual key material protected.
+        chmod 555 /certificates
+    environment:
+      CERT_TOOL_VERSION: "4.14"
+    volumes:
+      - wazuh_certs:/certificates
+      - ./siem/wazuh/config/certs.yml:/config/certs.yml:ro
+    networks:
+      sip_lab:
+        aliases:
+          - wazuh-certs-generator
+
+  wazuh-indexer:
+    image: wazuh/wazuh-indexer:4.14.5
+    platform: linux/amd64
+    hostname: wazuh-indexer
+    cap_drop: [ALL]
+    cap_add: [IPC_LOCK, SETUID, SETGID]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 1000
+    # 3g container for a 1g JVM heap: OpenSearch needs heap + off-heap +
+    # Lucene mmap headroom. 1536m OOM-killed the indexer (exit 137) once it
+    # started building indices even with the VM otherwise idle.
+    mem_limit: 3g
+    cpus: 1.5
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        printf '#!/bin/sh\ncommand -v "$$1"\n' > /tmp/which
+        chmod +x /tmp/which
+        export PATH="/tmp:/usr/share/wazuh-indexer/jdk/bin:$${PATH}"
+        ADMIN_HASH="$$(/usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh -p "$${WAZUH_INDEXER_PASSWORD:-ChangeMeLocal1!}" | tail -n 1)"
+        KIBANASERVER_HASH="$$(/usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh -p "$${WAZUH_DASHBOARD_PASSWORD:-kibanaserver}" | tail -n 1)"
+        sed -e "s|__WAZUH_ADMIN_HASH__|$${ADMIN_HASH}|g" -e "s|__WAZUH_KIBANASERVER_HASH__|$${KIBANASERVER_HASH}|g" /tmp/internal_users.template.yml > /usr/share/wazuh-indexer/config/opensearch-security/internal_users.yml
+        exec /entrypoint.sh opensearchwrapper
+    depends_on:
+      wazuh-certs-generator:
+        condition: service_completed_successfully
+    environment:
+      OPENSEARCH_JAVA_OPTS: "-Xms1g -Xmx1g"
+      bootstrap.memory_lock: "true"
+      cluster.name: wazuh-cluster
+      node.name: wazuh-indexer
+      discovery.type: single-node
+      WAZUH_INDEXER_PASSWORD: ${WAZUH_INDEXER_PASSWORD:-ChangeMeLocal1!}
+      WAZUH_DASHBOARD_PASSWORD: ${WAZUH_DASHBOARD_PASSWORD:-kibanaserver}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - wazuh_indexer_data:/var/lib/wazuh-indexer
+      - wazuh_certs:/usr/share/wazuh-indexer/config/certs:ro
+      - ./siem/wazuh/indexer/opensearch-local.yml:/usr/share/wazuh-indexer/config/opensearch.yml:ro
+      - ./siem/wazuh/config/internal_users.yml:/tmp/internal_users.template.yml:ro
+    ports:
+      - "${DEV_BIND_IP:-127.0.0.1}:9200:9200"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -ksf -u ${WAZUH_INDEXER_USER:-admin}:${WAZUH_INDEXER_PASSWORD:-ChangeMeLocal1!} https://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 12
+      start_period: 90s
+    networks:
+      sip_lab:
+        aliases:
+          - wazuh-indexer
+
+  wazuh-manager:
+    image: wazuh/wazuh-manager:4.14.5
+    platform: linux/amd64
+    hostname: wazuh-manager
+    # cap_drop/cap_add hardening intentionally NOT applied to wazuh-manager.
+    # Empirical results 2026-04-29: even with CHOWN/FOWNER/DAC_OVERRIDE/SETUID/
+    # SETGID/NET_BIND_SERVICE/SYS_CHROOT, wazuh-apid still fails to start with
+    # the s6-overlay init pipeline ("wazuh-apid did not start correctly"). The
+    # full minimal set the manager image needs is not documented upstream and
+    # the bundled Python aiohttp service appears to need something not in the
+    # obvious list. Tracked as hardening debt; for now keep manager with
+    # default caps. Indexer / dashboard / certs-generator are hardened in this
+    # same compose, providing meaningful blast-radius reduction without
+    # blocking the lab.
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 500
+    mem_limit: 1536m
+    cpus: 1.0
+    depends_on:
+      wazuh-certs-generator:
+        condition: service_completed_successfully
+      wazuh-indexer:
+        condition: service_healthy
+    environment:
+      INDEXER_URL: https://wazuh-indexer:9200
+      INDEXER_USERNAME: ${WAZUH_INDEXER_USER:-admin}
+      INDEXER_PASSWORD: ${WAZUH_INDEXER_PASSWORD:-ChangeMeLocal1!}
+      FILEBEAT_SSL_VERIFICATION_MODE: certificate
+      SSL_CERTIFICATE_AUTHORITIES: /certificates/root-ca-manager.pem
+      SSL_CERTIFICATE: /certificates/wazuh-manager.pem
+      SSL_KEY: /certificates/wazuh-manager-key.pem
+      API_USERNAME: ${WAZUH_API_USER:-wazuh-wui}
+      API_PASSWORD: ${WAZUH_API_PASSWORD:-ChangeMeLocal1!}
+    volumes:
+      - wazuh_manager_data:/var/ossec/data
+      - wazuh_manager_logs:/var/ossec/logs
+      - wazuh_certs:/certificates:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Self-healing config: ossec.conf lives in the container's writable layer
+      # (not bind-mounted, to preserve the pinned default + client.keys), so a
+      # fresh/recreated manager loses the project <localfile> and <integration>
+      # blocks. The stock image runs every /entrypoint-scripts/*.sh before
+      # `wazuh-control start` (see /etc/cont-init.d/2-manager), so this script
+      # re-registers them idempotently on every start - no manual step, no
+      # restart. The Shuffle integration XML is mounted read-only for it to read.
+      - ./siem/wazuh/bootstrap/register_localfiles.sh:/entrypoint-scripts/10-register-ngn-localfiles.sh:ro
+      - ./siem/wazuh/integrations/wazuh_shuffle_integration.xml:/ngn-bootstrap/wazuh_shuffle_integration.xml:ro
+      # NOTE: target the TOP LEVEL of etc/decoders and etc/rules, not a /local
+      # subdir. The manager's default ossec.conf ruleset uses
+      # <decoder_dir>etc/decoders</decoder_dir> / <rule_dir>etc/rules</rule_dir>,
+      # which scan NON-recursively. Files placed in etc/decoders/local/ are
+      # never loaded, so the SIP decoders/rules silently did not fire. Mounting
+      # at the top level puts kamailio.xml/asterisk.xml/sip_rules.xml on the
+      # actual load path (built-in rules live separately under ruleset/).
+      - ./siem/wazuh/decoders:/wazuh-config-mount/etc/decoders:ro
+      # Stage-1 ML detection rules (100150/100151) live in siem/wazuh/rules/
+      # alongside sip_rules.xml so they load from the same non-recursive path.
+      - ./siem/wazuh/rules:/wazuh-config-mount/etc/rules:ro
+      - ./siem/wazuh/active-response:/wazuh-config-mount/active-response/bin/local:ro
+      - asterisk_logs:/logs/asterisk:ro
+    ports:
+      - "${DEV_BIND_IP:-127.0.0.1}:1514:1514/tcp"
+      - "${DEV_BIND_IP:-127.0.0.1}:1515:1515/tcp"
+      - "${DEV_BIND_IP:-127.0.0.1}:55000:55000/tcp"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -skf -u ${WAZUH_API_USER:-wazuh-wui}:${WAZUH_API_PASSWORD:-ChangeMeLocal1!} -X POST https://localhost:55000/security/user/authenticate?raw=true | grep -q '^eyJ'",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 8
+      start_period: 120s
+    networks:
+      sip_lab:
+        aliases:
+          - wazuh-manager
+
+  wazuh-dashboard:
+    image: wazuh/wazuh-dashboard:4.14.5
+    platform: linux/amd64
+    hostname: wazuh-dashboard
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 500
+    mem_limit: 1g
+    cpus: 0.75
+    # OIDC-only (no basic-auth fallback), so it hard-requires Keycloak; without
+    # a restart policy it stays dead if Keycloak comes up after it.
+    restart: unless-stopped
+    depends_on:
+      wazuh-certs-generator:
+        condition: service_completed_successfully
+      wazuh-manager:
+        condition: service_healthy
+    environment:
+      INDEXER_URL: https://wazuh-indexer:9200
+      INDEXER_USERNAME: ${WAZUH_INDEXER_USER:-admin}
+      INDEXER_PASSWORD: ${WAZUH_INDEXER_PASSWORD:-ChangeMeLocal1!}
+      WAZUH_API_URL: https://wazuh-manager
+      DASHBOARD_USERNAME: ${WAZUH_DASHBOARD_USER:-kibanaserver}
+      DASHBOARD_PASSWORD: ${WAZUH_DASHBOARD_PASSWORD:-kibanaserver}
+      API_USERNAME: ${WAZUH_API_USER:-wazuh-wui}
+      API_PASSWORD: ${WAZUH_API_PASSWORD:-ChangeMeLocal1!}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-ngn-sip-lab}
+      KEYCLOAK_WAZUH_CLIENT_ID: ${KEYCLOAK_WAZUH_CLIENT_ID:-wazuh-dashboard}
+      KEYCLOAK_WAZUH_CLIENT_SECRET: ${KEYCLOAK_WAZUH_CLIENT_SECRET:-change-me-local-only}
+    # Render opensearch_dashboards.yml from env at start so the OIDC client
+    # secret is env-driven (not a hardcoded value in a read-only mount). Mirrors
+    # the indexer's internal_users.yml templating; sed + a writable config dir.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        sed -e "s|__KEYCLOAK_REALM__|$${KEYCLOAK_REALM:-ngn-sip-lab}|g" \
+            -e "s|__KEYCLOAK_WAZUH_CLIENT_ID__|$${KEYCLOAK_WAZUH_CLIENT_ID:-wazuh-dashboard}|g" \
+            -e "s|__KEYCLOAK_WAZUH_CLIENT_SECRET__|$${KEYCLOAK_WAZUH_CLIENT_SECRET:-change-me-local-only}|g" \
+            /tmp/opensearch_dashboards.template.yml > /usr/share/wazuh-dashboard/config/opensearch_dashboards.yml
+        exec /entrypoint.sh
+    volumes:
+      - wazuh_certs:/usr/share/wazuh-dashboard/certs:ro
+      - ./siem/wazuh/config/opensearch_dashboards.yml:/tmp/opensearch_dashboards.template.yml:ro
+    ports:
+      - "${DEV_BIND_IP:-127.0.0.1}:5601:5601"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "code=\"$(curl -ks -u ${WAZUH_INDEXER_USER:-admin}:${WAZUH_INDEXER_PASSWORD:-ChangeMeLocal1!} -o /dev/null -w '%{http_code}' https://localhost:5601/api/status)\" && [ \"$${code}\" = \"200\" -o \"$${code}\" = \"302\" ]",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 12
+      start_period: 120s
+    networks:
+      sip_lab:
+        aliases:
+          - wazuh-dashboard
+
+  # NGN-SEC log relay: bridges Kamailio's stderr (docker-json logs) to the Wazuh
+  # manager. Kamailio runs with log_stderror=yes and there is no syslog daemon
+  # in its container, so this sidecar tails the container log via the Docker
+  # socket, keeps only the structured "NGN-SEC ..." security events, reformats
+  # each as a syslog line (so the manager predecoder sets program_name=kamailio),
+  # and appends it to the manager's log volume at ngnsec/kamailio-sec.log. The
+  # manager ingests that file via a <localfile> (see
+  # siem/wazuh/setup_kamailio_localfile.sh) and the SIP rules in
+  # siem/wazuh/rules/sip_rules.xml correlate it into rule 100100..100199.
+  kamailio-sec-relay:
+    image: docker:27-cli
+    restart: unless-stopped
+    # The manager writes its log volume as wazuh:wazuh (gid 999, dir mode 0770).
+    # DAC_OVERRIDE lets the relay (root) write the relay file into that volume
+    # without changing its ownership. All other caps dropped; this is already a
+    # trusted sidecar (it mounts the Docker socket read-only).
+    cap_drop: [ALL]
+    cap_add: [DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 100
+    mem_limit: 64m
+    cpus: 0.25
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - wazuh_manager_logs:/out
+    # The outer loop re-attaches `docker logs -f` after a Kamailio restart
+    # (the follow ends with EOF when the followed container stops).
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p /out/ngnsec
+        while true; do
+          docker logs -f --since 10s ngn-sip-kamailio-1 2>&1 | while IFS= read -r line; do
+            case "$$line" in
+              *NGN-SEC*) printf "%s sip-lab-host kamailio[1]: NGN-SEC%s\n" "$$(date '+%b %d %H:%M:%S')" "$${line#*NGN-SEC}" >> /out/ngnsec/kamailio-sec.log ;;
+            esac
+          done
+          sleep 2
+        done
+    # Liveness only: the relay loop creates /out/ngnsec at startup, so the check
+    # proves the script started and the manager log volume is mounted. A dead
+    # `docker logs -f` follow is re-attached by the outer loop, not the check.
+    healthcheck:
+      test: ["CMD-SHELL", "test -d /out/ngnsec"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      sip_lab:
+        aliases:
+          - kamailio-sec-relay
+
+  # Automated active-response ("Defend" arm of the ingress pipeline): bans the
+  # source of any HIGH-severity SIP detection at the Kamailio edge (ban_table ->
+  # DROP_IF_BANNED). Logic in siem/wazuh/active-response/autoban_loop.sh. Uses
+  # only the Docker socket (no host root). Stop this container to pause banning
+  # for clean measurement campaigns: `docker stop kamailio-autoban`.
+  kamailio-autoban:
+    image: docker:27-cli
+    container_name: kamailio-autoban
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 100
+    mem_limit: 64m
+    cpus: 0.25
+    # autoban reaches ClickHouse and the protected stack via `docker exec`, which
+    # needs real container names. Those are ${COMPOSE_PROJECT_NAME}-<svc>-1, so
+    # derive them from the project name rather than hardcoding a prefix that
+    # breaks whenever COMPOSE_PROJECT_NAME changes.
+    environment:
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-ngn-sip}
+      CLICKHOUSE_CTR: ${COMPOSE_PROJECT_NAME:-ngn-sip}-clickhouse-1
+      PROTECTED_CONTAINERS: >-
+        ${COMPOSE_PROJECT_NAME:-ngn-sip}-asterisk-1
+        ${COMPOSE_PROJECT_NAME:-ngn-sip}-kamailio-1
+        ${COMPOSE_PROJECT_NAME:-ngn-sip}-rtpengine-1
+        ${COMPOSE_PROJECT_NAME:-ngn-sip}-prometheus-1
+        ${COMPOSE_PROJECT_NAME:-ngn-sip}-vector-1
+        ${COMPOSE_PROJECT_NAME:-ngn-sip}-clickhouse-1
+        ${COMPOSE_PROJECT_NAME:-ngn-sip}-kamailio-sec-relay-1
+        ${COMPOSE_PROJECT_NAME:-ngn-sip}-postgres-1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./siem/wazuh/active-response/autoban_loop.sh:/autoban_loop.sh:ro
+    command: ["sh", "/autoban_loop.sh"]
+    # Liveness only: autoban_loop.sh truncates /tmp/autoban.seen at startup, so
+    # the check proves the script got past init. The loop itself is PID 1 - if
+    # it dies the container exits and restart: unless-stopped takes over.
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/autoban.seen"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      sip_lab:
+        aliases:
+          - kamailio-autoban
+
+volumes:
+  wazuh_certs:
+  wazuh_indexer_data:
+  wazuh_manager_data:
+  # Shared with the observability (Vector) and adapter stacks. Pinned to an
+  # explicit name so cross-project consumers reference it deterministically
+  # instead of guessing the <project>_<volume> auto-name.
+  wazuh_manager_logs:
+    name: ngn-sip-wazuh-manager-logs
+  asterisk_logs:
+    external: true
+    name: ngn-sip_asterisk_logs
+
+networks:
+  sip_lab:
+    external: true
+    name: ngn-sip_sip_lab

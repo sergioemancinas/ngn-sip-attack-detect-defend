@@ -1,0 +1,12 @@
+---
+- name: Configure Asterisk PBX
+  hosts: pbx-asterisk-01
+  become: true
+  roles:
+    - common
+  tasks:
+    - name: Record Asterisk target version
+      ansible.builtin.debug:
+        msg: "Install/configure Asterisk 20.19.0-compatible PBX and pjsip_session_logger in implementation pass."
+      tags: [asterisk, scaffold]
+

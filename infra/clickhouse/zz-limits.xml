@@ -1,0 +1,14 @@
+<!-- Concurrency + thread limits for the live-honeypot dashboard load.
+     Mounted into /etc/clickhouse-server/users.d/ so it survives container recreate.
+     max_threads kept low so a burst of concurrent dashboard queries stays well under
+     pids_limit; max_concurrent_queries_for_user bounds accumulation (rejects with a
+     graceful 202 rather than exhausting threads). Tuned for SIP_BIND_IP=0.0.0.0 honeypot. -->
+<clickhouse>
+  <profiles>
+    <default>
+      <max_threads>2</max_threads>
+      <max_execution_time>20</max_execution_time>
+      <max_concurrent_queries_for_user>150</max_concurrent_queries_for_user>
+    </default>
+  </profiles>
+</clickhouse>

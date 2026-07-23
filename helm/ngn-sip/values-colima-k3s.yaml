@@ -1,0 +1,55 @@
+# =============================================================================
+# Example overrides for a local Colima k3s single-node cluster.
+#   colima start --kubernetes --cpu 6 --memory 14 --disk 60
+#   helm install ngn-sip ./helm/ngn-sip -n ngn-sip --create-namespace \
+#     -f ./helm/ngn-sip/values-colima-k3s.yaml
+#
+# Notes:
+#  * k3s ships the `local-path` StorageClass (RWO only). True RWX does not exist
+#    on a stock single node, so the shared-logs / wazuh-certs PVCs below are set
+#    to ReadWriteOnce — this WORKS only because every consumer lands on the one
+#    node. For multi-node, install an RWX provisioner (Longhorn/NFS) and set
+#    sharedLogs.accessMode back to ReadWriteMany. See the migration doc.
+#  * Local-built images must be imported: `k3s ctr images import <tar>`.
+# =============================================================================
+
+global:
+  storageClass: local-path
+  imagePullPolicy: IfNotPresent
+
+# Single-node: RWX is unavailable, RWO is fine because pods co-locate.
+sharedLogs:
+  accessMode: ReadWriteOnce
+  storage: 2Gi
+
+# Trim the heavy tiers for a laptop. Turn ollama/wazuh back on when you have RAM.
+tiers:
+  wazuhIndexer: false
+  edge: false
+  bootstrapJobs: false
+
+# Smaller footprints than the Compose ceilings.
+ollama:
+  storage: 12Gi
+  resources:
+    requests: { cpu: "500m", memory: "3Gi" }
+    limits:   { cpu: "2",    memory: "8Gi" }
+
+clickhouse:
+  storage: 4Gi
+  logStorage: 1Gi
+
+prometheus:
+  storage: 2Gi
+
+wazuhIndexer:
+  storage: 8Gi
+  javaOpts: "-Xms768m -Xmx768m"
+  resources:
+    requests: { cpu: "500m", memory: "1Gi" }
+    limits:   { cpu: "1",    memory: "2Gi" }
+
+# Reminder: these are still PLACEHOLDERS. Override with a private -f file or
+# --set-string, or wire a SealedSecret. Never commit real values.
+secrets:
+  create: true

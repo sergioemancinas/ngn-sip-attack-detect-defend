@@ -1,0 +1,576 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+
+  --surface-base: 9 9 11;
+  --surface-raised: 15 23 42;
+  --surface-overlay: 30 41 59;
+  --surface-border: 51 65 85;
+  --surface-muted: 100 116 139;
+
+  --accent: 99 102 241;
+  --accent-muted: 129 140 248;
+  --accent-green: 34 197 94;
+  --accent-amber: 245 158 11;
+  --accent-red: 239 68 68;
+  --accent-purple: 168 85 247;
+
+  --text-primary: 248 250 252;
+  --text-secondary: 203 213 225;
+  --text-muted: 148 163 184;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25), 0 8px 24px rgba(0, 0, 0, 0.2);
+  --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.3), 0 12px 32px rgba(0, 0, 0, 0.25);
+
+  --arch-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --arch-duration: 400ms;
+  --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --section-gap: 1.25rem;
+  --content-max: 88rem;
+
+  --ring-focus: 0 0 0 2px rgb(var(--surface-base)), 0 0 0 4px rgb(var(--accent));
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  @apply bg-surface text-gray-100 antialiased;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, 0.12), transparent),
+    radial-gradient(ellipse 60% 40% at 100% 0%, rgba(34, 197, 94, 0.04), transparent);
+  font-feature-settings: "kern" 1, "liga" 1;
+  letter-spacing: -0.011em;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--surface-border)) transparent;
+}
+
+::selection {
+  background: rgb(var(--accent) / 0.28);
+  color: rgb(var(--text-primary));
+}
+
+/* Coherent keyboard-focus default for interactive elements that do not declare
+   their own focus styles. Explicit Tailwind focus utilities cleanly override it. */
+a:focus-visible,
+button:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+input:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+@layer components {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .data-table {
+    @apply w-full text-left text-xs;
+  }
+
+  .data-table thead {
+    @apply sticky top-0 z-10 bg-surface-raised/95 text-text-muted backdrop-blur;
+  }
+
+  .data-table th {
+    @apply pb-2 pr-3 font-medium uppercase tracking-wide text-[10px];
+  }
+
+  .data-table th.numeric,
+  .data-table td.numeric {
+    @apply text-right tabular-nums;
+  }
+
+  .data-table tbody tr:nth-child(even) {
+    @apply bg-surface/40;
+  }
+
+  .data-table tbody tr {
+    @apply border-t border-surface-border/50 transition-colors hover:bg-surface-overlay/40;
+  }
+
+  .data-table td {
+    @apply py-2 pr-3 text-text-secondary;
+  }
+
+  .data-table td.mono {
+    @apply font-mono text-text-primary;
+  }
+
+  .rules-catalog-table {
+    @apply min-w-[640px] table-fixed text-left text-xs;
+  }
+
+  .rules-catalog-table th,
+  .rules-catalog-table td {
+    @apply align-top py-2.5 pr-4;
+  }
+
+  .rules-catalog-table th {
+    @apply whitespace-nowrap pb-2.5 text-[10px];
+  }
+
+  .rules-catalog-table td {
+    @apply break-words text-text-secondary;
+  }
+
+  .rules-catalog-table tbody tr {
+    @apply border-t border-surface-border/50 transition-colors hover:bg-accent/5;
+  }
+
+  .rules-catalog-table tbody tr:hover td {
+    @apply text-text-primary;
+  }
+
+  .rules-catalog-table .col-id {
+    width: 5.5rem;
+  }
+
+  .rules-catalog-table .col-level {
+    width: 4.5rem;
+  }
+
+  .rules-catalog-table .col-mitre {
+    width: 6.5rem;
+  }
+
+  .rules-catalog-table .col-category {
+    width: 7rem;
+  }
+
+  .rules-catalog-table .col-name {
+    width: 11rem;
+  }
+
+  .rules-catalog-table .col-behaviour {
+    min-width: 12rem;
+  }
+
+  .mitre-tag {
+    @apply inline-flex items-center rounded-md border border-accent/25 bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] text-accent;
+  }
+
+  .stat-card {
+    @apply rounded-xl border border-surface-border bg-surface-raised/80 p-4 shadow-card backdrop-blur transition-all duration-300 hover:border-surface-border/80 hover:shadow-card-hover;
+  }
+
+  .panel-card {
+    @apply rounded-xl border border-surface-border/90 bg-surface-raised/70 shadow-card backdrop-blur transition-all duration-300;
+  }
+
+  .panel-card-accent {
+    @apply border-accent/25 bg-gradient-to-br from-accent/10 via-surface-raised/80 to-surface-raised/40;
+  }
+
+  .section-stack {
+    @apply space-y-5;
+  }
+
+  .section-stack-compact {
+    @apply space-y-5;
+  }
+
+  .section-enter {
+    animation: section-enter 420ms var(--arch-ease) both;
+  }
+
+  /* Staggered card mount: set --mount-index on each item to cascade the entrance. */
+  .card-mount {
+    animation: card-mount 460ms var(--motion-ease) both;
+    animation-delay: calc(var(--mount-index, 0) * 55ms);
+  }
+
+  .stat-accent-bar {
+    @apply absolute inset-x-0 top-0 h-0.5 rounded-t-xl opacity-70;
+  }
+
+  .content-shell {
+    @apply mx-auto w-full max-w-[var(--content-max)];
+  }
+
+  .shimmer {
+    @apply animate-pulse bg-gradient-to-r from-surface-overlay via-surface-border/40 to-surface-overlay bg-[length:200%_100%];
+    animation: shimmer 1.6s ease-in-out infinite;
+  }
+
+  .code-snippet {
+    @apply overflow-x-auto rounded-lg border border-surface-border bg-surface p-4 font-mono text-xs leading-relaxed text-text-secondary;
+  }
+
+  .code-snippet .kw {
+    @apply text-accent-purple;
+  }
+
+  .code-snippet .fn {
+    @apply text-accent;
+  }
+
+  .code-snippet .str {
+    @apply text-accent-green;
+  }
+
+  .code-snippet .cmt {
+    @apply text-text-muted;
+  }
+
+  .code-snippet .num {
+    @apply text-accent-amber;
+  }
+
+  /* Architecture diagram: node and edge transitions */
+  .arch-node {
+    transition:
+      opacity var(--arch-duration) var(--arch-ease),
+      transform var(--arch-duration) var(--arch-ease);
+    transition-delay: var(--arch-stagger, 0ms);
+  }
+
+  .arch-node-rect {
+    transition:
+      stroke-width var(--arch-duration) var(--arch-ease),
+      filter var(--arch-duration) var(--arch-ease),
+      x var(--arch-duration) var(--arch-ease),
+      y var(--arch-duration) var(--arch-ease),
+      width var(--arch-duration) var(--arch-ease),
+      height var(--arch-duration) var(--arch-ease);
+    transition-delay: var(--arch-stagger, 0ms);
+  }
+
+  .arch-node-label {
+    transition:
+      fill var(--arch-duration) var(--arch-ease),
+      opacity var(--arch-duration) var(--arch-ease);
+    transition-delay: var(--arch-stagger, 0ms);
+  }
+
+  .arch-edge {
+    transition:
+      stroke var(--arch-duration) var(--arch-ease),
+      stroke-width var(--arch-duration) var(--arch-ease),
+      opacity var(--arch-duration) var(--arch-ease);
+  }
+
+  .arch-lane {
+    transition: opacity var(--arch-duration) var(--arch-ease);
+  }
+
+  .arch-edge-flow-active {
+    animation: arch-edge-flow 1.4s linear infinite;
+  }
+
+  .motion-safe\:arch-ingress-lane-ring {
+    animation: arch-lane-ring-pulse 2.2s ease-in-out infinite;
+  }
+
+  .motion-safe\:arch-detect-lane-ring {
+    animation: arch-lane-ring-pulse 2s ease-in-out infinite;
+  }
+
+  .motion-safe\:arch-stage1-lane-ring {
+    animation: arch-lane-ring-pulse 2.3s ease-in-out infinite;
+  }
+
+  .motion-safe\:arch-stage2-lane-ring {
+    animation: arch-lane-ring-pulse 2.1s ease-in-out infinite;
+  }
+
+  .motion-safe\:arch-respond-lane-ring {
+    animation: arch-lane-ring-pulse 1.9s ease-in-out infinite;
+  }
+
+  .motion-safe\:arch-observe-lane-ring {
+    animation: arch-lane-ring-pulse 2.2s ease-in-out infinite;
+  }
+
+  .motion-safe\:arch-ingress-node-glow {
+    animation: arch-ingress-node-glow 2s ease-in-out infinite;
+  }
+
+  .motion-safe\:arch-detect-node-blink {
+    animation: arch-detect-node-blink 1.6s ease-in-out infinite;
+  }
+
+  .motion-safe\:arch-stage1-node-glow {
+    animation: arch-stage1-node-glow 2.2s ease-in-out infinite;
+  }
+
+  .motion-safe\:arch-stage2-node-shimmer {
+    animation: arch-stage2-node-glow 2.4s ease-in-out infinite;
+  }
+
+  .motion-safe\:arch-respond-node-confirm {
+    animation: arch-respond-node-confirm 2s ease-in-out infinite;
+  }
+
+  .motion-safe\:arch-observe-node-glow {
+    animation: arch-node-glow 2.4s ease-in-out infinite;
+  }
+
+  .motion-safe\:arch-observe-store-glow {
+    animation: arch-observe-store-glow 1.8s ease-in-out infinite;
+  }
+
+  .motion-safe\:arch-stage1-score-fill {
+    transform-box: fill-box;
+    transform-origin: left center;
+    animation: arch-stage1-score-fill 2.4s ease-in-out infinite;
+  }
+
+  .motion-safe\:arch-stage2-shimmer-sweep {
+    animation: arch-stage2-shimmer-sweep 2.2s ease-in-out infinite;
+  }
+
+  .motion-safe\:arch-detect-sweep-wrap {
+    animation: arch-detect-sweep 2.4s ease-in-out infinite;
+  }
+
+  .motion-safe\:arch-respond-block-flash {
+    animation: arch-respond-block-flash 2.2s ease-in-out infinite;
+  }
+
+  .motion-safe\:arch-node-outer-ring {
+    animation: arch-node-outer-ring 2.2s ease-in-out infinite;
+  }
+
+  .motion-safe\:arch-respond-confirm-ring {
+    animation: arch-respond-confirm-ring 2s ease-in-out infinite;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes section-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes card-mount {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes arch-edge-flow {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+
+@keyframes arch-node-glow {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.88;
+  }
+}
+
+@keyframes arch-lane-ring-pulse {
+  0%,
+  100% {
+    stroke-opacity: 0.35;
+  }
+  50% {
+    stroke-opacity: 0.9;
+  }
+}
+
+@keyframes arch-observe-store-glow {
+  0%,
+  100% {
+    stroke-opacity: 0.45;
+  }
+  50% {
+    stroke-opacity: 1;
+  }
+}
+
+@keyframes arch-ingress-node-glow {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.86;
+  }
+}
+
+@keyframes arch-detect-node-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  35% {
+    opacity: 0.72;
+  }
+  50% {
+    opacity: 1;
+  }
+  65% {
+    opacity: 0.78;
+  }
+}
+
+@keyframes arch-stage1-node-glow {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@keyframes arch-stage2-node-glow {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.87;
+  }
+}
+
+@keyframes arch-respond-node-confirm {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  55% {
+    opacity: 0.92;
+  }
+}
+
+@keyframes arch-stage1-score-fill {
+  0% {
+    transform: scaleX(0.08);
+  }
+  40% {
+    transform: scaleX(1);
+  }
+  60% {
+    transform: scaleX(1);
+  }
+  100% {
+    transform: scaleX(0.2);
+  }
+}
+
+@keyframes arch-stage2-shimmer-sweep {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(55%);
+  }
+}
+
+@keyframes arch-detect-sweep {
+  0% {
+    transform: translateX(-55%);
+    opacity: 0.15;
+  }
+  45% {
+    opacity: 0.65;
+  }
+  100% {
+    transform: translateX(55%);
+    opacity: 0.15;
+  }
+}
+
+@keyframes arch-respond-block-flash {
+  0%,
+  45% {
+    stroke-opacity: 0;
+  }
+  58% {
+    stroke-opacity: 0.85;
+  }
+  75%,
+  100% {
+    stroke-opacity: 0;
+  }
+}
+
+@keyframes arch-respond-confirm-ring {
+  0%,
+  100% {
+    stroke-opacity: 0.3;
+  }
+  50% {
+    stroke-opacity: 0.85;
+  }
+}
+
+@keyframes arch-node-outer-ring {
+  0%,
+  100% {
+    stroke-opacity: 0.35;
+  }
+  50% {
+    stroke-opacity: 0.75;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section-enter,
+  .card-mount {
+    animation: none !important;
+  }
+
+  .arch-edge-flow-active,
+  .motion-safe\:arch-ingress-lane-ring,
+  .motion-safe\:arch-detect-lane-ring,
+  .motion-safe\:arch-stage1-lane-ring,
+  .motion-safe\:arch-stage2-lane-ring,
+  .motion-safe\:arch-respond-lane-ring,
+  .motion-safe\:arch-observe-lane-ring,
+  .motion-safe\:arch-ingress-node-glow,
+  .motion-safe\:arch-detect-node-blink,
+  .motion-safe\:arch-stage1-node-glow,
+  .motion-safe\:arch-stage2-node-shimmer,
+  .motion-safe\:arch-respond-node-confirm,
+  .motion-safe\:arch-observe-node-glow,
+  .motion-safe\:arch-observe-store-glow,
+  .motion-safe\:arch-stage1-score-fill,
+  .motion-safe\:arch-stage2-shimmer-sweep,
+  .motion-safe\:arch-detect-sweep-wrap,
+  .motion-safe\:arch-respond-block-flash,
+  .motion-safe\:arch-node-outer-ring,
+  .motion-safe\:arch-respond-confirm-ring {
+    animation: none !important;
+  }
+}

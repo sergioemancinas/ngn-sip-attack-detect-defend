@@ -1,0 +1,261 @@
+# =============================================================================
+# ngn-sip Helm chart — default values
+# =============================================================================
+# Security posture is preserved from Docker Compose: every workload drops ALL
+# capabilities and adds back only what its Compose service added, runs with
+# no-new-privileges (allowPrivilegeEscalation: false), and sets
+# readOnlyRootFilesystem where the Compose service set read_only: true.
+#
+# SECRETS: every value under `.secrets` is a PLACEHOLDER. Do NOT commit real
+# credentials. Override at install time with `--set-string secrets.xxx=...`,
+# a `-f my-secrets.yaml` file kept out of git, or (recommended) a Sealed
+# Secret / external-secrets operator that populates the `ngn-sip-secrets`
+# Secret this chart references. See docs/05_kubernetes_migration.md.
+# =============================================================================
+
+global:
+  # Images are pinned exactly as in Compose; local builds must be pushed to a
+  # registry the cluster can pull, or side-loaded (k3s ctr images import).
+  imagePullPolicy: IfNotPresent
+  # "" = use the cluster default StorageClass. On Colima k3s set to "local-path".
+  storageClass: ""
+
+nameOverride: ""
+
+# -----------------------------------------------------------------------------
+# Per-tier enable flags. Turn off the design-only / heavy tiers for a minimal
+# bring-up. `edge` (Kamailio+Suricata) and `activeResponse` are DESIGN-ONLY.
+# -----------------------------------------------------------------------------
+tiers:
+  postgres: true
+  clickhouse: true
+  vector: true
+  grafana: true
+  prometheus: true
+  keycloak: true
+  ml: true            # ollama + stage1-scorer + stage2-worker
+  dashboard: true
+  homer: true
+  wazuhIndexer: true
+  wazuhManager: false # heavy + capability-hardening debt (see values comments)
+  wazuhDashboard: false
+  edge: false         # kamailio + suricata co-pod — DESIGN-ONLY, renders but not certified
+  bootstrapJobs: false # Helm-hook Jobs mirroring `make bootstrap` — see templates/bootstrap
+
+# -----------------------------------------------------------------------------
+# NetworkPolicy: default-deny + allow-same-namespace (with DNS egress).
+# DESIGN-ONLY, off by default: it only takes effect on a CNI that enforces
+# NetworkPolicy (Calico, Cilium; NOT the default k3s flannel). Ported from the
+# former kubernetes/manifests/networkpolicy.yaml so the hardening intent is kept
+# with the chart rather than in a separate, un-templated manifest tree.
+# -----------------------------------------------------------------------------
+networkPolicy:
+  enabled: false
+
+# -----------------------------------------------------------------------------
+# Images — pinned identically to the Compose stack.
+# -----------------------------------------------------------------------------
+images:
+  postgres: ngn-sip/pgvector:0.8.0-pg16
+  clickhouse: clickhouse/clickhouse-server:24.3.18.7-alpine
+  vector: timberio/vector:0.41.1-alpine
+  grafana: grafana/grafana:11.6.14
+  prometheus: prom/prometheus:v3.11.3
+  keycloak: quay.io/keycloak/keycloak:26.0.7
+  ollama: ollama/ollama:0.22.0
+  stage1: ngn-sip/stage1-scorer:0.1.0
+  stage2: ngn-sip/stage2-worker:0.1.0
+  dashboard: ngn-sip-dashboard:local
+  kamailio: ngn-sip/kamailio:5.8.8
+  suricata: jasonish/suricata:7.0.10
+  wazuhIndexer: wazuh/wazuh-indexer:4.14.5
+  wazuhManager: wazuh/wazuh-manager:4.14.5
+  wazuhDashboard: wazuh/wazuh-dashboard:4.14.5
+  homerPostgres: postgres:15.10
+  heplify: sipcapture/heplify-server@sha256:ab0cfcc929d0844a889ed1c16662e0a3fe120aaa974909970acd54da5a76e043
+  hepBridge: ngn-sip/hep-bridge:local
+  homerWebapp: sipcapture/webapp@sha256:e34fa9a3461e6cad693a2503fb569bff952f91a4fc49e8fc0f0d5cf4c10e850b
+
+# -----------------------------------------------------------------------------
+# Non-secret config knobs (mirror .env.example non-secret keys).
+# -----------------------------------------------------------------------------
+config:
+  postgresDb: ngn_sip
+  postgresUser: ngn
+  clickhouseDb: ngn_sip
+  clickhouseUser: ngn
+  grafanaAdminUser: admin
+  grafanaRootUrl: http://localhost:3000
+  keycloakRealm: ngn-sip-lab
+  keycloakAdmin: admin
+  ollamaModel: qwen2.5:7b-instruct-q4_K_M
+  wazuhIndexerUser: admin
+  wazuhApiUser: wazuh-wui
+  wazuhDashboardUser: kibanaserver
+  dashboardAllowInsecure: "true"
+
+# -----------------------------------------------------------------------------
+# Secrets — PLACEHOLDERS ONLY. Rendered into a single Secret `ngn-sip-secrets`.
+# Set `secrets.create: false` to bring your own Secret of the same name.
+# -----------------------------------------------------------------------------
+secrets:
+  create: true
+  postgresPassword: change-me-local-only
+  clickhousePassword: change-me-local-only
+  grafanaAdminPassword: change-me-local-only
+  grafanaOidcClientSecret: change-me-local-only
+  keycloakAdminPassword: change-me-local-only
+  keycloakWazuhClientSecret: change-me-local-only
+  keycloakClientSecret: change-me-local-only
+  nextauthSecret: change-me-local-only
+  wazuhIndexerPassword: ChangeMeLocal1!
+  wazuhApiPassword: ChangeMeLocal1!
+  wazuhDashboardPassword: kibanaserver
+  homerDbPassword: change-me-local-only
+  homerAdminPassword: change-me-local-only
+  # kamcmd-relay bearer token (design-only enforcement path)
+  kamcmdRelayToken: change-me-local-only
+
+# -----------------------------------------------------------------------------
+# Per-service resource requests/limits mirror Compose mem_limit / cpus.
+# requests = a conservative fraction; limits = the Compose ceiling.
+# -----------------------------------------------------------------------------
+postgres:
+  storage: 2Gi
+  resources:
+    requests: { cpu: "250m", memory: "256Mi" }
+    limits:   { cpu: "1",    memory: "512Mi" }
+
+clickhouse:
+  storage: 10Gi
+  logStorage: 2Gi
+  resources:
+    requests: { cpu: "500m", memory: "768Mi" }
+    limits:   { cpu: "1500m", memory: "1536Mi" }
+
+vector:
+  storage: 2Gi
+  resources:
+    requests: { cpu: "250m", memory: "128Mi" }
+    limits:   { cpu: "500m", memory: "256Mi" }
+
+grafana:
+  storage: 1Gi
+  resources:
+    requests: { cpu: "250m", memory: "256Mi" }
+    limits:   { cpu: "750m", memory: "512Mi" }
+
+prometheus:
+  storage: 4Gi
+  retentionTime: 15d
+  retentionSize: 2GB
+  resources:
+    requests: { cpu: "250m", memory: "256Mi" }
+    limits:   { cpu: "750m", memory: "512Mi" }
+
+keycloak:
+  resources:
+    requests: { cpu: "250m", memory: "512Mi" }
+    limits:   { cpu: "1",    memory: "1Gi" }
+
+ollama:
+  storage: 20Gi
+  resources:
+    # 10g ceiling as in Compose (qwen2.5:7b mmap + working set). Big.
+    requests: { cpu: "1",  memory: "4Gi" }
+    limits:   { cpu: "2",  memory: "10Gi" }
+
+stage1:
+  resources:
+    requests: { cpu: "250m", memory: "256Mi" }
+    limits:   { cpu: "1",    memory: "512Mi" }
+
+stage2:
+  resources:
+    requests: { cpu: "250m", memory: "128Mi" }
+    limits:   { cpu: "500m", memory: "256Mi" }
+
+dashboard:
+  resources:
+    requests: { cpu: "250m", memory: "256Mi" }
+    limits:   { cpu: "750m", memory: "512Mi" }
+
+homerPostgres:
+  storage: 2Gi
+  resources:
+    requests: { cpu: "250m", memory: "256Mi" }
+    limits:   { cpu: "1",    memory: "1Gi" }
+
+heplify:
+  resources:
+    requests: { cpu: "250m", memory: "128Mi" }
+    limits:   { cpu: "750m", memory: "512Mi" }
+
+hepBridge:
+  resources:
+    requests: { cpu: "100m", memory: "64Mi" }
+    limits:   { cpu: "250m", memory: "128Mi" }
+
+homerWebapp:
+  resources:
+    requests: { cpu: "250m", memory: "256Mi" }
+    limits:   { cpu: "1",    memory: "1Gi" }
+
+wazuhIndexer:
+  storage: 20Gi
+  javaOpts: "-Xms1g -Xmx1g"
+  resources:
+    # 3g ceiling as in Compose (1g heap + off-heap + Lucene mmap headroom).
+    requests: { cpu: "500m", memory: "1536Mi" }
+    limits:   { cpu: "1500m", memory: "3Gi" }
+
+wazuhManager:
+  dataStorage: 5Gi
+  logsStorage: 5Gi
+  resources:
+    requests: { cpu: "500m", memory: "768Mi" }
+    limits:   { cpu: "1",    memory: "1536Mi" }
+
+wazuhDashboard:
+  resources:
+    requests: { cpu: "250m", memory: "512Mi" }
+    limits:   { cpu: "750m", memory: "1Gi" }
+
+# -----------------------------------------------------------------------------
+# SIP edge (DESIGN-ONLY). Kamailio + Suricata share the pod network namespace
+# (Compose network_mode: container:kamailio -> single Pod, two containers).
+# See docs/05_kubernetes_migration.md §Blocker 2.
+# -----------------------------------------------------------------------------
+edge:
+  # SIP is L4 UDP+TCP on 5060. Set service.type to LoadBalancer/NodePort to expose.
+  service:
+    type: ClusterIP
+    sipPort: 5060
+  # DESIGN-ONLY in-pod enforcement sidecar (Blocker 1). Off until the RPC path
+  # is implemented and certified; rendering it does not make it correct.
+  enforcementSidecar:
+    enabled: false
+  kamailio:
+    resources:
+      requests: { cpu: "250m", memory: "128Mi" }
+      limits:   { cpu: "750m", memory: "256Mi" }
+  suricata:
+    resources:
+      requests: { cpu: "500m", memory: "256Mi" }
+      limits:   { cpu: "1",    memory: "512Mi" }
+
+# -----------------------------------------------------------------------------
+# Shared logs volume (Wazuh manager <-> Vector <-> ML services).
+# In Compose this is the wazuh_manager_logs named volume, mounted RW by the
+# manager + ML scorers and RO by Vector. On K8s a single RWX PVC is required
+# because these are separate Pods that may land on different nodes. See
+# docs/05_kubernetes_migration.md §Shared logs / RWX.
+# -----------------------------------------------------------------------------
+sharedLogs:
+  # RWX only exists with a suitable provisioner (NFS, Longhorn, CephFS, or
+  # local-path when everything is pinned to one node). Colima k3s single-node
+  # can fake it with local-path + node affinity — see values-colima-k3s.yaml.
+  accessMode: ReadWriteMany
+  storage: 5Gi
+  # Wazuh manager writes as gid 999; consumers join via fsGroup / supplemental gid.
+  gid: 999

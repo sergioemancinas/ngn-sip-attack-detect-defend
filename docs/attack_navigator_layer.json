@@ -1,0 +1,79 @@
+{
+  "name": "NGN SIP Attack-Detect-Defend",
+  "description": "MITRE ATT&CK coverage derived from Suricata and Wazuh SIP detection rules.",
+  "domain": "enterprise-attack",
+  "versions": {
+    "attack": "16",
+    "navigator": "5.1.0",
+    "layer": "4.5"
+  },
+  "sorting": 0,
+  "layout": {
+    "layout": "side",
+    "aggregateFunction": "average",
+    "showID": true,
+    "showName": true,
+    "showAggregateScores": true,
+    "countUnscored": false
+  },
+  "hideDisabled": false,
+  "techniques": [
+    {
+      "techniqueID": "T1046",
+      "score": 1,
+      "color": "#fffacd",
+      "comment": "Suricata only"
+    },
+    {
+      "techniqueID": "T1110",
+      "score": 3,
+      "color": "#98fb98",
+      "comment": "Suricata and Wazuh"
+    },
+    {
+      "techniqueID": "T1190",
+      "score": 1,
+      "color": "#fffacd",
+      "comment": "Suricata only"
+    },
+    {
+      "techniqueID": "T1499",
+      "score": 3,
+      "color": "#98fb98",
+      "comment": "Suricata and Wazuh"
+    },
+    {
+      "techniqueID": "T1595",
+      "score": 3,
+      "color": "#98fb98",
+      "comment": "Suricata and Wazuh"
+    }
+  ],
+  "gradient": {
+    "colors": [
+      "#fffacd",
+      "#87ceeb",
+      "#98fb98"
+    ],
+    "minValue": 1,
+    "maxValue": 3
+  },
+  "legendItems": [
+    {
+      "label": "Suricata only",
+      "color": "#fffacd"
+    },
+    {
+      "label": "Wazuh only",
+      "color": "#87ceeb"
+    },
+    {
+      "label": "Suricata and Wazuh",
+      "color": "#98fb98"
+    }
+  ],
+  "metadata": [],
+  "links": [],
+  "showTacticRowBackground": false,
+  "tacticRowBackground": "#dddddd"
+}

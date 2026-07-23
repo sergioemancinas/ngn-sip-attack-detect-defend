@@ -1,0 +1,31 @@
+[project]
+name = "ngn-sip-orchestrator"
+version = "0.1.0"
+description = "Phase-based SIP attack runner + ClickHouse ground-truth label emitter."
+requires-python = ">=3.12"
+authors = [{ name = "Sergio Mancinas Fontalvo" }]
+dependencies = [
+    "click>=8.1",
+    "httpx>=0.27",
+    "structlog>=24.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+ngn-run-phase = "attacks.orchestrator.run_phase:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["attacks/orchestrator"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

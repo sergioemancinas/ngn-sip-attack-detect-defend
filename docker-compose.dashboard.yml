@@ -1,0 +1,71 @@
+# NGN SIP Stack Dashboard (Next.js, loopback-only).
+# Prerequisite: observability stack up so ClickHouse is on ngn-sip_sip_lab.
+#   docker compose -f docker-compose.observability.yml up -d clickhouse
+# Run:
+#   docker compose -f docker-compose.dashboard.yml up -d --build
+# Access via SSH tunnel to host port 3002 (DEV_BIND_IP, default 127.0.0.1).
+name: ngn-sip-dashboard
+
+services:
+  ngn-sip-dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_GRAFANA_URL: ${NEXT_PUBLIC_GRAFANA_URL:-}
+    image: ngn-sip-dashboard:local
+    hostname: ngn-sip-dashboard
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    pids_limit: 200
+    mem_limit: 512m
+    cpus: 0.75
+    tmpfs:
+      - /tmp:mode=1777,size=32m
+    environment:
+      CLICKHOUSE_URL: ${CLICKHOUSE_URL:-http://clickhouse:8123}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-ngn}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-local-only}
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-ngn_sip}
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-}
+      # Browser-horizon auth URL (split-horizon): the in-cluster issuer is keycloak:8080,
+      # which a remote browser cannot resolve. Point the redirect at the tunnelled localhost.
+      KEYCLOAK_BROWSER_AUTH_URL: ${KEYCLOAK_BROWSER_AUTH_URL:-}
+      # In-cluster discovery URL (keycloak:8080) so the server resolves token/userinfo/jwks
+      # to a reachable host while issuer + browser auth stay frontend-facing (localhost:8080).
+      KEYCLOAK_WELL_KNOWN_URL: ${KEYCLOAK_WELL_KNOWN_URL:-}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-ngn-sip-dashboard}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://127.0.0.1:3002}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-change-me-local-only}
+      DASHBOARD_REFRESH_MS: ${DASHBOARD_REFRESH_MS:-15000}
+      # Grafana behind the same Caddy proxy; used by the embedded-Grafana panels.
+      NEXT_PUBLIC_GRAFANA_URL: ${NEXT_PUBLIC_GRAFANA_URL:-}
+      # Loopback-only dev: allow no-auth so the SSH-tunnel demo is usable. Set to false
+      # and provide KEYCLOAK_ISSUER + a real NEXTAUTH_SECRET before any non-loopback exposure.
+      DASHBOARD_ALLOW_INSECURE: ${DASHBOARD_ALLOW_INSECURE:-true}
+    ports:
+      - "${DEV_BIND_IP:-127.0.0.1}:3002:3000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 45s
+    restart: unless-stopped
+    networks:
+      sip_lab:
+        aliases:
+          - ngn-sip-dashboard
+
+networks:
+  sip_lab:
+    external: true
+    name: ngn-sip_sip_lab

@@ -1,0 +1,22 @@
+---
+# Internal users for Wazuh indexer security plugin.
+# Admin hash is rendered at container start from WAZUH_INDEXER_PASSWORD with:
+# /usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh -p '<new-password>'
+
+_meta:
+  type: "internalusers"
+  config_version: 2
+
+admin:
+  # Replaced at runtime by docker-compose.wazuh.yml entrypoint wrapper.
+  hash: "__WAZUH_ADMIN_HASH__"
+  reserved: true
+  backend_roles:
+    - "admin"
+  description: "Local lab admin user"
+
+kibanaserver:
+  # Replaced at runtime from WAZUH_DASHBOARD_PASSWORD.
+  hash: "__WAZUH_KIBANASERVER_HASH__"
+  reserved: true
+  description: "Dashboard service user"

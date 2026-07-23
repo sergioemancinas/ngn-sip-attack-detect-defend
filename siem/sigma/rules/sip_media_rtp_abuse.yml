@@ -1,0 +1,41 @@
+title: Kamailio RTP Relay Abuse Indicator
+id: 7aec5184-36e3-43c3-b8de-159538b7e9cb
+status: test
+description: Detects Kamailio NGN-SEC reason strings for RTP relay abuse, RTPBleed-style probing, unsolicited RTP, or media-port sweeps.
+references:
+  - https://attack.mitre.org/techniques/T1040/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio NGN-SEC reason field decoded by siem/wazuh/decoders/kamailio.xml.
+detection:
+  selection:
+    reason|re: '(?i)(rtp[-_ ]relay[-_ ]abuse|rtpbleed|unsolicited[-_ ]rtp|media[-_ ]port[-_ ]sweep)'
+  condition: selection
+falsepositives:
+  - One-way-audio troubleshooting tools in controlled test windows.
+level: high
+tags:
+  - attack.collection
+  - attack.t1040
+---
+title: Asterisk RTP Relay Abuse Indicator
+id: 52b0fd79-4fc7-4a9b-86a7-63aed7030cf2
+status: test
+description: Detects Asterisk media log messages for unsolicited, invalid, unknown, or flooding RTP behavior.
+references:
+  - https://attack.mitre.org/techniques/T1040/
+logsource:
+  product: ngn-sip
+  service: asterisk-pjsip
+  definition: Asterisk full log decoded into module and message by siem/wazuh/decoders/asterisk.xml.
+detection:
+  selection:
+    message|re: '(?i)(rtp.*(unknown|unsolicited|flood|invalid)|strict[- ]rtp.*(failed|timeout))'
+  condition: selection
+falsepositives:
+  - Packet-loss stress tests or codec negotiation experiments.
+level: medium
+tags:
+  - attack.collection
+  - attack.t1040

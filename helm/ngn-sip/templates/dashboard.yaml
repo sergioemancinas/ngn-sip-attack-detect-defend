@@ -1,0 +1,98 @@
+{{- if .Values.tiers.dashboard }}
+# Next.js stack dashboard. Compose: cap_drop ALL, read-only rootfs,
+# no-new-privileges, tmpfs /tmp. Image is a local build (push to a registry the
+# cluster can pull, or side-load).
+apiVersion: v1
+kind: Service
+metadata:
+  name: ngn-sip-dashboard
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "dashboard") | nindent 4 }}
+spec:
+  selector:
+    {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "dashboard") | nindent 4 }}
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ngn-sip-dashboard
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "dashboard") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "dashboard") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "dashboard") | nindent 8 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dashboard
+          image: {{ .Values.images.dashboard | quote }}
+          imagePullPolicy: {{ include "ngn-sip.pullPolicy" . }}
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: CLICKHOUSE_URL
+              value: http://clickhouse:8123
+            - name: CLICKHOUSE_USER
+              value: {{ .Values.config.clickhouseUser | quote }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: ngn-sip-secrets, key: CLICKHOUSE_PASSWORD }
+            - name: CLICKHOUSE_DATABASE
+              value: {{ .Values.config.clickhouseDb | quote }}
+            - name: KEYCLOAK_ISSUER
+              value: "http://localhost:8080/realms/{{ .Values.config.keycloakRealm }}"
+            - name: KEYCLOAK_BROWSER_AUTH_URL
+              value: "http://localhost:8080/realms/{{ .Values.config.keycloakRealm }}/protocol/openid-connect/auth"
+            - name: KEYCLOAK_WELL_KNOWN_URL
+              value: "http://keycloak:8080/realms/{{ .Values.config.keycloakRealm }}/.well-known/openid-configuration"
+            - name: KEYCLOAK_CLIENT_ID
+              value: ngn-sip-dashboard
+            - name: KEYCLOAK_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: { name: ngn-sip-secrets, key: KEYCLOAK_CLIENT_SECRET }
+            - name: NEXTAUTH_URL
+              value: http://127.0.0.1:3002
+            - name: NEXTAUTH_SECRET
+              valueFrom:
+                secretKeyRef: { name: ngn-sip-secrets, key: NEXTAUTH_SECRET }
+            - name: DASHBOARD_REFRESH_MS
+              value: "15000"
+            - name: DASHBOARD_ALLOW_INSECURE
+              value: {{ .Values.config.dashboardAllowInsecure | quote }}
+          ports:
+            - containerPort: 3000
+          resources:
+            {{- toYaml .Values.dashboard.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 45
+            periodSeconds: 15
+            failureThreshold: 8
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi
+{{- end }}

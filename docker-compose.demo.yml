@@ -1,0 +1,48 @@
+# Demo runner for the dashboard "Run live demo" button.
+#
+# Isolation: this is the ONLY service given the Docker socket, and it runs a
+# single hardcoded, bounded SIP demo (short recon scan + extension probe). It is
+# NOT host-published - only the Keycloak-gated dashboard reaches it over the
+# internal sip_lab network at http://demo-runner:8088. The socket is mounted
+# read-only; the runner never executes anything derived from the HTTP request.
+#
+# Run (on the VM, after the core stack + attacker image exist):
+#   docker compose -p ngn-sip-demo -f docker-compose.demo.yml up -d --build
+name: ngn-sip-demo
+
+services:
+  demo-runner:
+    build:
+      context: ./observability/demo-runner
+    image: ngn-sip-demo-runner:local
+    hostname: demo-runner
+    environment:
+      DEMO_NET: ${DEMO_NET:-ngn-sip_sip_lab}
+      DEMO_IMAGE: ${DEMO_IMAGE:-ngn-sip/attacker:v1}
+      DEMO_TARGET: ${DEMO_TARGET:-kamailio}
+      DEMO_COOLDOWN: ${DEMO_COOLDOWN:-45}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    # Drops all caps like the other socket-mounting sidecars (autoban, relay):
+    # holding the Docker socket already needs no Linux capabilities.
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 100
+    mem_limit: 128m
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8088/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      sip_lab:
+        aliases:
+          - demo-runner
+
+networks:
+  sip_lab:
+    external: true
+    name: ngn-sip_sip_lab

@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  images:
+    name: Release image ${{ matrix.image }}
+    uses: ./.github/workflows/_image-ci.yml
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: pgvector
+            context: infra/postgres
+            dockerfile: infra/postgres/Dockerfile
+          - image: asterisk
+            context: infra/asterisk
+            dockerfile: infra/asterisk/Dockerfile
+          - image: kamailio
+            context: infra/kamailio
+            dockerfile: infra/kamailio/Dockerfile
+          - image: rtpengine
+            context: infra/rtpengine
+            dockerfile: infra/rtpengine/Dockerfile
+          - image: sipp
+            context: infra/sipp
+            dockerfile: infra/sipp/Dockerfile
+    with:
+      image-name: ${{ matrix.image }}
+      context: ${{ matrix.context }}
+      dockerfile: ${{ matrix.dockerfile }}
+      push: true
+      scan: true
+      version-tag: ${{ github.ref_name }}
+    secrets: inherit
+
+  sbom:
+    name: SBOM (source + dependencies)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # attach the SBOM to the release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      # Syft generates a CycloneDX SBOM over the repo (pip, npm, Dockerfiles),
+      # satisfying the OpenSSF Scorecard SBOM check. Pinned by major tag.
+      - name: Generate SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+          # The explicit softprops step below attaches the SBOM; disable the
+          # action's own release upload (it needs actions:read to re-download
+          # its artifact and otherwise fails with "Resource not accessible").
+          upload-release-assets: false
+      - name: Attach SBOM to release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: sbom.cyclonedx.json

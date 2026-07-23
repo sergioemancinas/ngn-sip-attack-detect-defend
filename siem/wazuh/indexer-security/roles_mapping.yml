@@ -1,0 +1,235 @@
+_meta:
+  type: rolesmapping
+  config_version: 2
+all_access:
+  reserved: true
+  hidden: false
+  backend_roles:
+  - admin
+  - all_access
+  - lab-admin
+  - wazuh-admin
+  hosts: []
+  users: []
+  and_backend_roles: []
+  description: Maps admin to all_access
+own_index:
+  reserved: false
+  hidden: false
+  backend_roles: []
+  hosts: []
+  users:
+  - '*'
+  and_backend_roles: []
+  description: Allow full access to an index named like the username
+logstash:
+  reserved: false
+  hidden: false
+  backend_roles:
+  - logstash
+  hosts: []
+  users: []
+  and_backend_roles: []
+readall:
+  reserved: true
+  hidden: false
+  backend_roles:
+  - readall
+  hosts: []
+  users: []
+  and_backend_roles: []
+manage_snapshots:
+  reserved: true
+  hidden: false
+  backend_roles:
+  - snapshotrestore
+  hosts: []
+  users: []
+  and_backend_roles: []
+kibana_server:
+  reserved: true
+  hidden: false
+  backend_roles: []
+  hosts: []
+  users:
+  - kibanaserver
+  and_backend_roles: []
+kibana_user:
+  reserved: false
+  hidden: false
+  backend_roles:
+  - admin
+  - all_access
+  - kibanauser
+  - lab-admin
+  - wazuh-admin
+  hosts: []
+  users: []
+  and_backend_roles: []
+  description: Maps kibanauser to kibana_user
+manage_wazuh_index:
+  reserved: true
+  hidden: false
+  backend_roles:
+  - admin
+  - all_access
+  - lab-admin
+  - wazuh-admin
+  hosts: []
+  users:
+  - kibanaserver
+  and_backend_roles: []
+security_manager:
+  backend_roles:
+  - admin
+  - all_access
+  - lab-admin
+  - wazuh-admin
+  reserved: false
+  hidden: false
+  hosts: []
+  users: []
+  and_backend_roles: []
+alerting_full_access:
+  backend_roles:
+  - admin
+  - all_access
+  - lab-admin
+  - wazuh-admin
+  reserved: false
+  hidden: false
+  hosts: []
+  users: []
+  and_backend_roles: []
+anomaly_full_access:
+  backend_roles:
+  - admin
+  - all_access
+  - lab-admin
+  - wazuh-admin
+  reserved: false
+  hidden: false
+  hosts: []
+  users: []
+  and_backend_roles: []
+index_management_full_access:
+  backend_roles:
+  - admin
+  - all_access
+  - lab-admin
+  - wazuh-admin
+  reserved: false
+  hidden: false
+  hosts: []
+  users: []
+  and_backend_roles: []
+notebooks_full_access:
+  backend_roles:
+  - admin
+  - all_access
+  - lab-admin
+  - wazuh-admin
+  reserved: false
+  hidden: false
+  hosts: []
+  users: []
+  and_backend_roles: []
+notifications_full_access:
+  backend_roles:
+  - admin
+  - all_access
+  - lab-admin
+  - wazuh-admin
+  reserved: false
+  hidden: false
+  hosts: []
+  users: []
+  and_backend_roles: []
+observability_full_access:
+  backend_roles:
+  - admin
+  - all_access
+  - lab-admin
+  - wazuh-admin
+  reserved: false
+  hidden: false
+  hosts: []
+  users: []
+  and_backend_roles: []
+reports_full_access:
+  backend_roles:
+  - admin
+  - all_access
+  - lab-admin
+  - wazuh-admin
+  reserved: false
+  hidden: false
+  hosts: []
+  users: []
+  and_backend_roles: []
+ml_full_access:
+  backend_roles:
+  - admin
+  - all_access
+  - lab-admin
+  - wazuh-admin
+  reserved: false
+  hidden: false
+  hosts: []
+  users: []
+  and_backend_roles: []
+asynchronous_search_full_access:
+  backend_roles:
+  - admin
+  - all_access
+  - lab-admin
+  - wazuh-admin
+  reserved: false
+  hidden: false
+  hosts: []
+  users: []
+  and_backend_roles: []
+security_analytics_full_access:
+  backend_roles:
+  - admin
+  - all_access
+  - lab-admin
+  - wazuh-admin
+  reserved: false
+  hidden: false
+  hosts: []
+  users: []
+  and_backend_roles: []
+knn_full_access:
+  backend_roles:
+  - admin
+  - all_access
+  - lab-admin
+  - wazuh-admin
+  reserved: false
+  hidden: false
+  hosts: []
+  users: []
+  and_backend_roles: []
+ppl_full_access:
+  backend_roles:
+  - admin
+  - all_access
+  - lab-admin
+  - wazuh-admin
+  reserved: false
+  hidden: false
+  hosts: []
+  users: []
+  and_backend_roles: []
+point_in_time_full_access:
+  backend_roles:
+  - admin
+  - all_access
+  - lab-admin
+  - wazuh-admin
+  reserved: false
+  hidden: false
+  hosts: []
+  users: []
+  and_backend_roles: []

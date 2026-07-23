@@ -1,0 +1,21 @@
+title: Asterisk PJSIP Authentication Failure
+id: 295d9a3f-a287-4ed4-aaf3-68e87b01a9c3
+name: asterisk_pjsip_auth_failure
+status: test
+description: Detects a single Asterisk chan_pjsip authentication failure with a decoded source IP when present.
+references:
+  - https://attack.mitre.org/techniques/T1110/
+logsource:
+  product: ngn-sip
+  service: asterisk-pjsip
+  definition: Asterisk full log decoded into module, message, endpoint, and srcip by siem/wazuh/decoders/asterisk.xml.
+detection:
+  selection:
+    message|re: '(?i)chan_pjsip.*Authentication failed'
+  condition: selection
+falsepositives:
+  - Endpoint reboot race, stale nonce, or an old softphone registration profile.
+level: low
+tags:
+  - attack.credential_access
+  - attack.t1110

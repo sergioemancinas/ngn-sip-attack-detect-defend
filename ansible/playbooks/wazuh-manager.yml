@@ -1,0 +1,12 @@
+---
+- name: Configure Wazuh manager
+  hosts: wazuh-manager-01
+  become: true
+  roles:
+    - common
+  tasks:
+    - name: Record Wazuh manager version
+      ansible.builtin.debug:
+        msg: "Install Wazuh manager 4.10.3 and reuse existing SIP decoders/rules in implementation pass."
+      tags: [wazuh, scaffold]
+

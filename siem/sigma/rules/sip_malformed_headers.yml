@@ -1,0 +1,21 @@
+title: Malformed SIP Header Indicator
+id: 1844511e-8918-49c5-9471-56d1dc4047ca
+name: sip_malformed_header_indicator
+status: test
+description: Detects Kamailio NGN-SEC reason strings for malformed Via, CSeq, From, or To headers.
+references:
+  - https://attack.mitre.org/techniques/T1190/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio NGN-SEC reason field decoded by siem/wazuh/decoders/kamailio.xml.
+detection:
+  selection:
+    reason|re: '(?i)(malformed[-_ ](?:via|cseq|from|to)|invalid[-_ ](?:via|cseq|from|to)|bad[-_ ]via|(?:via|cseq|from|to)[-_ ]header[-_ ]invalid|cseq[-_ ]overflow)'
+  condition: selection
+falsepositives:
+  - Non-standard but benign SIP implementations or legacy gateways.
+level: medium
+tags:
+  - attack.initial_access
+  - attack.t1190

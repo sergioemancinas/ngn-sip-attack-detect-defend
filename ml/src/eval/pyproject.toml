@@ -1,0 +1,22 @@
+[project]
+name = "ngn-sip-eval"
+version = "0.1.0"
+description = "Comparative detector evaluation harness"
+requires-python = ">=3.11"
+dependencies = [
+  # Pins verified on PyPI on 2026-05-31.
+  "numpy==2.4.6",
+  "pandas==3.0.3",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest==9.0.3",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["compare"]

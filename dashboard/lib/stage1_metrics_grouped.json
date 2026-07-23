@@ -1,0 +1,401 @@
+{
+  "created_at": "2026-06-10T11:59:09.091388+00:00",
+  "dataset_source": "ngn_sip.sip_features_5min",
+  "detectors": {
+    "isolation_forest": {
+      "alert_latency": {
+        "mean_seconds": 114.0485,
+        "median_seconds": 78.29299999999999,
+        "p95_seconds": 260.40385
+      },
+      "binary": {
+        "f1": 0.3287671232876712,
+        "precision": 0.3870967741935484,
+        "recall": 0.2857142857142857
+      },
+      "confusion_matrix": {
+        "labels": [
+          "benign",
+          "attack"
+        ],
+        "matrix": [
+          [
+            54,
+            19
+          ],
+          [
+            30,
+            12
+          ]
+        ]
+      },
+      "cv": {
+        "folds": [
+          {
+            "binary_f1": 0.358974358974359,
+            "binary_precision": 0.6363636363636364,
+            "binary_recall": 0.25,
+            "fold": 1,
+            "roc_auc": 0.543002915451895
+          },
+          {
+            "binary_f1": 0.3902439024390244,
+            "binary_precision": 0.5714285714285714,
+            "binary_recall": 0.2962962962962963,
+            "fold": 2,
+            "roc_auc": 0.517384731670446
+          },
+          {
+            "binary_f1": 0.3333333333333333,
+            "binary_precision": 0.75,
+            "binary_recall": 0.21428571428571427,
+            "fold": 3,
+            "roc_auc": 0.5840773809523809
+          },
+          {
+            "binary_f1": 0.4186046511627907,
+            "binary_precision": 0.6,
+            "binary_recall": 0.32142857142857145,
+            "fold": 4,
+            "roc_auc": 0.5219494047619048
+          },
+          {
+            "binary_f1": 0.425531914893617,
+            "binary_precision": 0.5263157894736842,
+            "binary_recall": 0.35714285714285715,
+            "fold": 5,
+            "roc_auc": 0.4787946428571429
+          }
+        ],
+        "mean_binary_f1": 0.3853376321606249,
+        "splits": 5
+      },
+      "dataset_source": "ngn_sip.sip_features_5min",
+      "detector": "isolation_forest",
+      "grouped_cv": {
+        "folds": [
+          {
+            "binary_f1": 0.46511627906976744,
+            "binary_precision": 0.7142857142857143,
+            "binary_recall": 0.3448275862068966,
+            "fold": 1,
+            "roc_auc": 0.5352011494252874
+          },
+          {
+            "binary_f1": 0.36,
+            "binary_precision": 0.4090909090909091,
+            "binary_recall": 0.32142857142857145,
+            "fold": 2,
+            "roc_auc": 0.5420386904761905
+          },
+          {
+            "binary_f1": 0.34285714285714286,
+            "binary_precision": 0.75,
+            "binary_recall": 0.2222222222222222,
+            "fold": 3,
+            "roc_auc": 0.46825396825396826
+          },
+          {
+            "binary_f1": 0.45,
+            "binary_precision": 0.6923076923076923,
+            "binary_recall": 0.3333333333333333,
+            "fold": 4,
+            "roc_auc": 0.5963718820861679
+          },
+          {
+            "binary_f1": 0.3076923076923077,
+            "binary_precision": 0.2702702702702703,
+            "binary_recall": 0.35714285714285715,
+            "fold": 5,
+            "roc_auc": 0.40811011904761907
+          }
+        ],
+        "mean_binary_f1": 0.38513314592384357,
+        "n_groups": 138,
+        "oof_binary_f1_ci95": {
+          "hi95": 0.453781512605042,
+          "iterations": 2000,
+          "lo95": 0.297280119102153,
+          "point": 0.3776824034334764
+        },
+        "splits": 5,
+        "splitter": "StratifiedGroupKFold"
+      },
+      "label_mode": "binary_anomaly",
+      "model_path": "/ml/stage1/models/stage1_isolation_forest.pkl",
+      "per_class": {
+        "attack": {
+          "f1": 0.3287671232876712,
+          "precision": 0.3870967741935484,
+          "recall": 0.2857142857142857,
+          "support": 42
+        },
+        "benign": {
+          "f1": 0.6878980891719745,
+          "precision": 0.6428571428571429,
+          "recall": 0.7397260273972602,
+          "support": 73
+        }
+      },
+      "roc_auc": 0.58382257012394,
+      "samples": 115,
+      "split": "stratified_holdout",
+      "synthetic_training_data": false
+    },
+    "xgboost": {
+      "alert_latency": {
+        "mean_seconds": 129.0314,
+        "median_seconds": 99.204,
+        "p95_seconds": 243.3674
+      },
+      "binary": {
+        "f1": 0.7246376811594203,
+        "precision": 0.9259259259259259,
+        "recall": 0.5952380952380952
+      },
+      "confusion_matrix": {
+        "labels": [
+          "benign",
+          "recon",
+          "credentials",
+          "injection",
+          "dos",
+          "media",
+          "tollfraud"
+        ],
+        "matrix": [
+          [
+            71,
+            0,
+            2,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            9,
+            7,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            6,
+            0,
+            10,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            0,
+            3,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            0,
+            3,
+            0,
+            0,
+            0
+          ]
+        ]
+      },
+      "cv": {
+        "folds": [
+          {
+            "binary_f1": 0.7083333333333334,
+            "binary_precision": 0.85,
+            "binary_recall": 0.6071428571428571,
+            "fold": 1,
+            "roc_auc": 0.9474667145687969
+          },
+          {
+            "binary_f1": 0.6829268292682927,
+            "binary_precision": 1.0,
+            "binary_recall": 0.5185185185185185,
+            "fold": 2,
+            "roc_auc": 0.952120615272931
+          },
+          {
+            "binary_f1": 0.7555555555555555,
+            "binary_precision": 1.0,
+            "binary_recall": 0.6071428571428571,
+            "fold": 3,
+            "roc_auc": 0.9598855553692881
+          },
+          {
+            "binary_f1": 0.7659574468085106,
+            "binary_precision": 0.9473684210526315,
+            "binary_recall": 0.6428571428571429,
+            "fold": 4,
+            "roc_auc": 0.9574697428186298
+          },
+          {
+            "binary_f1": 0.8163265306122449,
+            "binary_precision": 0.9523809523809523,
+            "binary_recall": 0.7142857142857143,
+            "fold": 5,
+            "roc_auc": 0.9596654264569504
+          }
+        ],
+        "mean_binary_f1": 0.7458199391155874,
+        "splits": 5
+      },
+      "dataset_source": "ngn_sip.sip_features_5min",
+      "detector": "xgboost",
+      "grouped_cv": {
+        "folds": [
+          {
+            "binary_f1": 0.8076923076923077,
+            "binary_precision": 0.9130434782608695,
+            "binary_recall": 0.7241379310344828,
+            "fold": 1,
+            "roc_auc": 0.9691534584598847
+          },
+          {
+            "binary_f1": 0.6511627906976745,
+            "binary_precision": 0.9333333333333333,
+            "binary_recall": 0.5,
+            "fold": 2,
+            "roc_auc": 0.9428376589164261
+          },
+          {
+            "binary_f1": 0.7272727272727273,
+            "binary_precision": 0.9411764705882353,
+            "binary_recall": 0.5925925925925926,
+            "fold": 3,
+            "roc_auc": 0.9576432461298737
+          },
+          {
+            "binary_f1": 0.7111111111111111,
+            "binary_precision": 0.8888888888888888,
+            "binary_recall": 0.5925925925925926,
+            "fold": 4,
+            "roc_auc": 0.953879541069691
+          },
+          {
+            "binary_f1": 0.8333333333333334,
+            "binary_precision": 1.0,
+            "binary_recall": 0.7142857142857143,
+            "fold": 5,
+            "roc_auc": 0.9775156454843956
+          }
+        ],
+        "mean_binary_f1": 0.7461144540214308,
+        "n_groups": 138,
+        "oof_binary_f1_ci95": {
+          "hi95": 0.8117350941422593,
+          "iterations": 2000,
+          "lo95": 0.6842048302574618,
+          "point": 0.75
+        },
+        "splits": 5,
+        "splitter": "StratifiedGroupKFold"
+      },
+      "label_mode": "multiclass",
+      "model_path": "/ml/stage1/models/stage1_xgboost.pkl",
+      "per_class": {
+        "benign": {
+          "f1": 0.8819875776397516,
+          "precision": 0.8068181818181818,
+          "recall": 0.9726027397260274,
+          "support": 73
+        },
+        "credentials": {
+          "f1": 0.6896551724137931,
+          "precision": 0.7692307692307693,
+          "recall": 0.625,
+          "support": 16
+        },
+        "dos": {
+          "f1": 0.6666666666666666,
+          "precision": 1.0,
+          "recall": 0.5,
+          "support": 2
+        },
+        "injection": {
+          "f1": 0.6,
+          "precision": 0.5,
+          "recall": 0.75,
+          "support": 4
+        },
+        "media": {
+          "f1": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "support": 0
+        },
+        "recon": {
+          "f1": 0.6086956521739131,
+          "precision": 1.0,
+          "recall": 0.4375,
+          "support": 16
+        },
+        "tollfraud": {
+          "f1": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "support": 4
+        }
+      },
+      "roc_auc": 0.9474402187856091,
+      "samples": 115,
+      "split": "stratified_holdout",
+      "synthetic_training_data": false
+    }
+  },
+  "feature_columns": [
+    "total_msgs",
+    "register_count",
+    "invite_count",
+    "options_count",
+    "auth_4xx_count",
+    "success_2xx",
+    "error_5xx",
+    "distinct_ua",
+    "distinct_to_uri",
+    "distinct_call_id",
+    "sum_body_size",
+    "sample_count",
+    "register_ratio",
+    "invite_ratio",
+    "options_ratio",
+    "auth_4xx_ratio",
+    "success_2xx_ratio",
+    "error_5xx_ratio",
+    "avg_body_size",
+    "ua_diversity_ratio",
+    "to_uri_diversity_ratio",
+    "call_id_diversity_ratio"
+  ],
+  "synthetic_training_data": false
+}

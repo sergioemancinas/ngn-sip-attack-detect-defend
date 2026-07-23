@@ -1,0 +1,134 @@
+{{- if .Values.tiers.vector }}
+# Vector log router -> ClickHouse. Compose runs it as uid 65534, read-only
+# rootfs, cap_drop ALL + NET_BIND_SERVICE, supplemental gid 999 so it can read
+# the wazuh-owned alerts. The vector_data buffer volume ships root:root, so a
+# one-shot init container chowns it to 65534 (Compose vector-init service).
+apiVersion: v1
+kind: Service
+metadata:
+  name: vector
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "vector") | nindent 4 }}
+spec:
+  selector:
+    {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "vector") | nindent 4 }}
+  ports:
+    - name: metrics
+      port: 9598
+      targetPort: 9598
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vector-data
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "vector") | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- include "ngn-sip.storageClass" . | nindent 2 }}
+  resources:
+    requests:
+      storage: {{ .Values.vector.storage }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vector
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "vector") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate   # single RWO buffer volume; no two Pods at once
+  selector:
+    matchLabels:
+      {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "vector") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "vector") | nindent 8 }}
+    spec:
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        # Join the wazuh gid so Vector can read group-readable alerts.json
+        # (Compose group_add: "999").
+        supplementalGroups: [{{ .Values.sharedLogs.gid }}]
+        fsGroup: {{ .Values.sharedLogs.gid }}
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: vector-init
+          image: {{ .Values.images.vector | quote }}
+          imagePullPolicy: {{ include "ngn-sip.pullPolicy" . }}
+          command: ["/bin/sh", "-c", "chown 65534:65534 /var/lib/vector && chmod 0700 /var/lib/vector"]
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
+          volumeMounts:
+            - name: vector-data
+              mountPath: /var/lib/vector
+      containers:
+        - name: vector
+          image: {{ .Values.images.vector | quote }}
+          imagePullPolicy: {{ include "ngn-sip.pullPolicy" . }}
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["NET_BIND_SERVICE"]
+          env:
+            - name: CLICKHOUSE_USER
+              value: {{ .Values.config.clickhouseUser | quote }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: ngn-sip-secrets, key: CLICKHOUSE_PASSWORD }
+          ports:
+            - containerPort: 9598
+          resources:
+            {{- toYaml .Values.vector.resources | nindent 12 }}
+          livenessProbe:
+            exec:
+              command: ["vector", "validate", "--no-environment", "/etc/vector/vector.yaml"]
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          volumeMounts:
+            - name: vector-data
+              mountPath: /var/lib/vector
+            - name: config
+              mountPath: /etc/vector/vector.yaml
+              subPath: vector.yaml
+              readOnly: true
+            # Wazuh alerts + HEP events arrive on the shared RWX PVC. asterisk +
+            # suricata logs originate in the edge pod (design-only) and would be
+            # projected here via the same RWX PVC or a logging sidecar.
+            - name: shared-logs
+              mountPath: /logs/wazuh
+              subPath: alerts
+              readOnly: true
+            - name: shared-logs
+              mountPath: /logs/hep
+              subPath: hep
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: vector-data
+          persistentVolumeClaim:
+            claimName: vector-data
+        - name: config
+          configMap:
+            name: vector-config
+        - name: shared-logs
+          persistentVolumeClaim:
+            claimName: ngn-sip-shared-logs
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+{{- end }}

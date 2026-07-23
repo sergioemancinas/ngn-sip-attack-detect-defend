@@ -1,0 +1,22 @@
+title: Rapid Kamailio SIP Credential Brute Force
+id: 666e1914-f1fc-478a-ac17-67ba7e1015b5
+status: test
+description: Detects five or more Kamailio SIP authentication failures from the same source IP within 60 seconds.
+references:
+  - https://attack.mitre.org/techniques/T1110/001/
+correlation:
+  type: event_count
+  rules:
+    - kamailio_auth_failure
+  group-by:
+    - srcip
+  timespan: 60s
+  condition:
+    gte: 5
+  generate: true
+falsepositives:
+  - Shared NAT egress or a call-center subnet with many legitimate endpoints retrying stale credentials.
+level: high
+tags:
+  - attack.credential_access
+  - attack.t1110.001

@@ -1,0 +1,232 @@
+name: ngn-sip
+
+services:
+  postgres:
+    image: ngn-sip/pgvector:0.8.0-pg16
+    build:
+      context: ./infra/postgres
+      dockerfile: Dockerfile
+      args:
+        POSTGRES_MAJOR: ${POSTGRES_MAJOR:-16}
+        PGVECTOR_VERSION: ${PGVECTOR_VERSION:-v0.8.0}
+        PGVECTOR_COMMIT: ${PGVECTOR_COMMIT:-2627c5ff775ae6d7aef0c430121ccf857842d2f2}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ngn_sip}
+      POSTGRES_USER: ${POSTGRES_USER:-ngn}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 200
+    mem_limit: 512m
+    cpus: 1.0
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+    networks:
+      sip_lab:
+        aliases:
+          - postgres
+
+  asterisk:
+    image: ngn-sip/asterisk:20.19.0
+    build:
+      context: ./infra/asterisk
+      args:
+        ASTERISK_VERSION: ${ASTERISK_VERSION:-20.19.0}
+        ASTERISK_COMMIT: ${ASTERISK_COMMIT:-f66917fe6da487155f80ab50403bf3d7bdc86183}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./infra/asterisk/etc:/etc/asterisk:ro
+      - asterisk_spool:/var/spool/asterisk
+      - asterisk_logs:/var/log/asterisk
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - NET_RAW
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 300
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs:
+      - /var/run/asterisk:uid=999,gid=999,mode=0755,size=16m
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD-SHELL", "/usr/sbin/asterisk -rx 'core show version' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      sip_lab:
+        aliases:
+          - asterisk
+
+  kamailio:
+    image: ngn-sip/kamailio:5.8.8
+    platform: linux/amd64
+    build:
+      context: ./infra/kamailio
+    depends_on:
+      asterisk:
+        condition: service_healthy
+    ports:
+      # SIP signaling uses SIP_BIND_IP, NOT DEV_BIND_IP, so the edge can be exposed
+      # (SIP_BIND_IP=0.0.0.0) WITHOUT also exposing the management planes (Grafana,
+      # Wazuh, Keycloak, Shuffle, ClickHouse, Ollama) that stay on DEV_BIND_IP=127.0.0.1.
+      # Defaults to loopback so dev behaviour is unchanged.
+      - "${SIP_BIND_IP:-127.0.0.1}:${SIP_TRANSPORT_PORT:-5060}:5060/udp"
+      - "${SIP_BIND_IP:-127.0.0.1}:${SIP_TRANSPORT_PORT:-5060}:5060/tcp"
+      # TLS/SIPS (enable with kamailio TLS_ENABLE + certs, see modules/tls.cfg):
+      # - "${SIP_BIND_IP:-127.0.0.1}:5061:5061/tcp"
+    volumes:
+      - ./infra/kamailio/kamailio.cfg:/etc/kamailio/kamailio.cfg:ro
+      - ./infra/kamailio/modules:/etc/kamailio/modules:ro
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - NET_RAW
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    pids_limit: 300
+    mem_limit: 256m
+    cpus: 0.75
+    tmpfs:
+      - /run/kamailio:uid=100,gid=101,mode=0755,size=16m
+      - /tmp:mode=1777,size=16m
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD-SHELL", "kamcmd core.version >/dev/null 2>&1 || pgrep kamailio >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    networks:
+      sip_lab:
+        aliases:
+          - kamailio
+
+  rtpengine:
+    image: ngn-sip/rtpengine:10.5.3.5
+    build:
+      context: ./infra/rtpengine
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        RTPENGINE_IP="$$(hostname -i | awk '{print $$1}')"
+        # RTP_ADVERTISE_IP (set to the VM public IP at the exposure window) makes rtpengine
+        # advertise that address in rewritten SDP so external callers send RTP to the VM.
+        # Empty (default) keeps the current internal-only behavior unchanged.
+        RTP_IFACE="internal/$${RTPENGINE_IP}"
+        if [ -n "$${RTP_ADVERTISE_IP}" ]; then RTP_IFACE="$${RTP_IFACE}!$${RTP_ADVERTISE_IP}"; fi
+        exec rtpengine \
+          --foreground \
+          --log-stderr \
+          --log-level=5 \
+          --interface=$${RTP_IFACE} \
+          --listen-ng=0.0.0.0:2223 \
+          --listen-cli=127.0.0.1:2224 \
+          --listen-http=0.0.0.0:9900 \
+          --port-min=${RTP_PORT_MIN:-30000} \
+          --port-max=${RTP_PORT_MAX:-30100} \
+          --table=0
+    environment:
+      # Set to the VM public IP (<VM_PUBLIC_IP>) only at the exposure window; empty = internal-only.
+      RTP_ADVERTISE_IP: ${RTP_ADVERTISE_IP:-}
+    ports:
+      # RTP media range, gated by SIP_BIND_IP (loopback by default, 0.0.0.0 at the exposure window).
+      # Internal calls use the sip_lab network, not these host ports, so this is inert until exposure.
+      - "${SIP_BIND_IP:-127.0.0.1}:${RTP_PORT_MIN:-30000}-${RTP_PORT_MAX:-30100}:${RTP_PORT_MIN:-30000}-${RTP_PORT_MAX:-30100}/udp"
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - NET_RAW
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 200
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep rtpengine >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+    networks:
+      sip_lab:
+        aliases:
+          - rtpengine
+
+  sip-tester:
+    image: ngn-sip/sipp:3.7.3
+    build:
+      context: ./infra/sipp
+      args:
+        SIPP_VERSION: ${SIPP_VERSION:-v3.7.3}
+        SIPP_COMMIT: ${SIPP_COMMIT:-11b51748b274d24ac156ac40216600aca0f352a7}
+    profiles: ["test"]
+    volumes:
+      - ./infra/sipp/scenarios:/scenarios:ro
+      - ./infra/sipp/data:/data:ro
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    pids_limit: 100
+    mem_limit: 128m
+    cpus: 0.25
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+      - /work:uid=10001,gid=10001,mode=0755,size=16m
+    networks:
+      sip_lab:
+        aliases:
+          - sip-tester
+    entrypoint: ["sleep"]
+    command: ["infinity"]
+
+volumes:
+  postgres_data:
+  asterisk_spool:
+  asterisk_logs:
+
+networks:
+  sip_lab:
+    driver: bridge

@@ -1,0 +1,58 @@
+# Dependabot keeps base images, Python deps, GitHub Actions, and the dashboard's
+# npm deps current. Weekly, grouped to keep PR volume low. Satisfies the OpenSSF
+# Scorecard "Dependency-Update-Tool" check.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /dashboard
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns: ["*"]
+
+  # Python services
+  - package-ecosystem: pip
+    directories:
+      - /ml/deploy
+      - /ml/stage2
+      - /ml/stage1
+      - /ml/src/eval
+      - /observability/hep-bridge
+      - /siem/adapter
+      - /attacks/orchestrator
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
+
+  # Container base images (Dockerfile FROM lines)
+  - package-ecosystem: docker
+    directories:
+      - /infra/asterisk
+      - /infra/kamailio
+      - /infra/rtpengine
+      - /infra/sipp
+      - /infra/attacker
+      - /infra/postgres
+      - /ml/deploy
+      - /ml/stage2
+      - /observability/hep-bridge
+      - /observability/demo-runner
+      - /siem/adapter
+      - /soar/kamcmd-relay
+      - /dashboard
+    schedule:
+      interval: weekly
+    groups:
+      base-images:
+        patterns: ["*"]

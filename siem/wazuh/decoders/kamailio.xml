@@ -1,0 +1,35 @@
+<!--
+  Kamailio decoder for Wazuh.
+  Source: Kamailio xlog/syslog. Expected formats:
+    <date> <host> kamailio[<pid>]: <level>: <module>: <message>
+  Project-specific NGN-SEC tag (set in modules/secfilter.cfg, pike.cfg, auth.cfg):
+    NGN-SEC <event_type> src=<ip> ua="<ua>" reason="<reason>"
+  MITRE coverage: T1110 (brute force) via auth-failure events; T1499 (DoS) via PIKE rate-limit.
+  FP scenarios: legitimate UA reboots can produce REGISTER bursts; tune PIKE rates per env.
+  Author: ngn-sip-detect-defend - Date: 2026-04-25
+-->
+
+<decoder name="kamailio">
+  <program_name>kamailio</program_name>
+</decoder>
+
+<decoder name="kamailio-secfilter">
+  <parent>kamailio</parent>
+  <prematch>NGN-SEC</prematch>
+  <regex type="pcre2" offset="after_prematch">^\s+(\S+) src=(\S+) ua="([^"]*)" reason="([^"]*)"</regex>
+  <order>event_type, srcip, user_agent, reason</order>
+</decoder>
+
+<decoder name="kamailio-auth">
+  <parent>kamailio</parent>
+  <prematch>auth.*failed</prematch>
+  <regex type="pcre2">from \S+@(\S+):(\d+)</regex>
+  <order>srcip, srcport</order>
+</decoder>
+
+<decoder name="kamailio-pike">
+  <parent>kamailio</parent>
+  <prematch>pike: PIKE BLOCKING</prematch>
+  <regex>ip (\S+)</regex>
+  <order>srcip</order>
+</decoder>

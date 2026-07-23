@@ -1,0 +1,22 @@
+name: Feature / enhancement
+description: Propose an improvement to detection, evaluation, or the testbed
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What gap or limitation does this address? Link to the relevant doc or code if any.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: How would it work? Note any impact on reproducibility or the reported metrics.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

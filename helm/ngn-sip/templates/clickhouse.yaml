@@ -1,0 +1,105 @@
+{{- if .Values.tiers.clickhouse }}
+# ClickHouse OLAP store. StatefulSet + data/logs PVCs. Exposes 8123 (HTTP, used
+# by Vector sinks + Grafana + dashboard) and 9000 (native, used by the ML
+# services). Compose adds KILL (Alpine entrypoint kills its temp init server),
+# IPC_LOCK, NET_BIND_SERVICE, SETGID, SETUID over cap_drop ALL.
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "clickhouse") | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "clickhouse") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8123
+      targetPort: 8123
+    - name: native
+      port: 9000
+      targetPort: 9000
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clickhouse
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "clickhouse") | nindent 4 }}
+spec:
+  serviceName: clickhouse
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "clickhouse") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "clickhouse") | nindent 8 }}
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: clickhouse
+          image: {{ .Values.images.clickhouse | quote }}
+          imagePullPolicy: {{ include "ngn-sip.pullPolicy" . }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["IPC_LOCK", "NET_BIND_SERVICE", "SETGID", "SETUID", "KILL"]
+          env:
+            - name: CLICKHOUSE_DB
+              value: {{ .Values.config.clickhouseDb | quote }}
+            - name: CLICKHOUSE_USER
+              value: {{ .Values.config.clickhouseUser | quote }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: ngn-sip-secrets, key: CLICKHOUSE_PASSWORD }
+            - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
+              value: "1"
+            - name: CLICKHOUSE_DO_NOT_CHOWN
+              value: "1"
+          ports:
+            - containerPort: 8123
+            - containerPort: 9000
+          resources:
+            {{- toYaml .Values.clickhouse.resources | nindent 12 }}
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "wget -qO- --tries=1 'http://127.0.0.1:8123/ping' | grep -q Ok"]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/clickhouse
+            - name: logs
+              mountPath: /var/log/clickhouse-server
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+      volumes:
+        - name: init
+          configMap:
+            name: clickhouse-init
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- include "ngn-sip.storageClass" . | nindent 8 }}
+        resources:
+          requests:
+            storage: {{ .Values.clickhouse.storage }}
+    - metadata:
+        name: logs
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- include "ngn-sip.storageClass" . | nindent 8 }}
+        resources:
+          requests:
+            storage: {{ .Values.clickhouse.logStorage }}
+{{- end }}

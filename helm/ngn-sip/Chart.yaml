@@ -1,0 +1,30 @@
+apiVersion: v2
+name: ngn-sip
+description: >-
+  NGN SIP attack detect-and-defend lab — Kubernetes/Helm port of the
+  Docker Compose stack. Ships the tiers that map cleanly to Kubernetes
+  (observability, SIEM indexer, SSO, ML, dashboard, HEP capture) and a
+  design-only Kamailio+Suricata co-pod for the SIP edge. The active-response
+  (ban) tier is DESIGN-ONLY on Kubernetes — see docs/05_kubernetes_migration.md.
+type: application
+# Chart version is independent of the app; bump on chart changes.
+version: 0.1.0
+# Tracks the Compose stack's overall milestone rather than any single image.
+appVersion: "1.0.0"
+keywords:
+  - sip
+  - security
+  - siem
+  - wazuh
+  - suricata
+  - clickhouse
+  - soar
+home: https://github.com/sergioemancinas/ngn-sip-attack-detect-defend
+maintainers:
+  - name: NGN SIP lab
+sources:
+  - https://github.com/sergioemancinas/ngn-sip-attack-detect-defend
+annotations:
+  # Honesty marker for reviewers: not every Compose tier is production-ready on K8s.
+  ngn-sip.io/deployable-now: "observability, keycloak, ml, dashboard, homer, wazuh-indexer"
+  ngn-sip.io/design-only: "kamailio+suricata edge, active-response ban path"

@@ -1,0 +1,213 @@
+# Homer 7 SIP capture stack.
+# Bind: HEP and web UI host ports are loopback-only via DEV_BIND_IP.
+# Note: requested sipcapture/heplify-server:1.65.13 and
+# sipcapture/webapp:7.10.7 were not present in Docker Hub on 2026-04-29,
+# so the published SIPCAPTURE artifacts are pinned by immutable digest.
+name: ngn-sip-homer
+
+services:
+  homer-postgres:
+    image: postgres:15.10
+    environment:
+      POSTGRES_DB: homer_data
+      POSTGRES_USER: homer_user
+      POSTGRES_PASSWORD: ${HOMER_DB_PASSWORD:-change-me-local-only}
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 300
+    mem_limit: 1024m
+    cpus: 1.0
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - homer_postgres_data:/var/lib/postgresql/data
+      - ./infra/homer/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      sip_lab:
+        aliases:
+          - homer-postgres
+          - homer-db
+
+  heplify-server:
+    image: sipcapture/heplify-server@sha256:ab0cfcc929d0844a889ed1c16662e0a3fe120aaa974909970acd54da5a76e043
+    platform: linux/amd64
+    depends_on:
+      homer-postgres:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -ec
+    command:
+      - |
+        sed "s|__HOMER_DB_PASSWORD__|$${HOMER_DB_PASSWORD:-change-me-local-only}|g" \
+          /config/heplify-server.toml > /tmp/heplify-server.toml
+        exec /root/heplify-server -config /tmp/heplify-server.toml
+    environment:
+      HOMER_DB_PASSWORD: ${HOMER_DB_PASSWORD:-change-me-local-only}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    pids_limit: 200
+    mem_limit: 512m
+    cpus: 0.75
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+    volumes:
+      - ./infra/homer/heplify-server.toml:/config/heplify-server.toml:ro
+    ports:
+      # Host publish is for debugging only; Kamailio reaches heplify-server:9060 on sip_lab.
+      - "${DEV_BIND_IP:-127.0.0.1}:9060:9060/udp"
+    expose:
+      - "9060/udp"
+      - "9090"
+    healthcheck:
+      test: ["CMD-SHELL", "ps | grep -v grep | grep -q heplify-server && wget -qO- --tries=1 'http://127.0.0.1:9090/metrics' >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      sip_lab:
+        aliases:
+          - heplify-server
+          - homer-hep
+
+  hep-bridge:
+    build:
+      context: ./observability/hep-bridge
+    depends_on:
+      homer-postgres:
+        condition: service_healthy
+      heplify-server:
+        condition: service_healthy
+    environment:
+      HOMER_PG_HOST: homer-postgres
+      HOMER_PG_PORT: "5432"
+      HOMER_PG_DATABASE: homer_data
+      HOMER_PG_USER: homer_user
+      HOMER_DB_PASSWORD: ${HOMER_DB_PASSWORD:-change-me-local-only}
+      HEP_BRIDGE_OUTPUT: /logs/hep/events.ndjson
+      HEP_BRIDGE_STATE: /var/lib/hep-bridge/state.json
+      HEP_BRIDGE_POLL_SECONDS: ${HEP_BRIDGE_POLL_SECONDS:-5}
+      HEP_BRIDGE_BATCH_SIZE: ${HEP_BRIDGE_BATCH_SIZE:-500}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    pids_limit: 100
+    mem_limit: 128m
+    cpus: 0.25
+    tmpfs:
+      - /tmp:mode=1777,size=8m
+    volumes:
+      - hep_bridge_logs:/logs/hep
+      - hep_bridge_state:/var/lib/hep-bridge
+    restart: unless-stopped
+    networks:
+      sip_lab:
+        aliases:
+          - hep-bridge
+
+  homer-webapp:
+    image: sipcapture/webapp@sha256:e34fa9a3461e6cad693a2503fb569bff952f91a4fc49e8fc0f0d5cf4c10e850b
+    platform: linux/amd64
+    depends_on:
+      homer-postgres:
+        condition: service_healthy
+      heplify-server:
+        condition: service_healthy
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        sed \
+          -e "s|__HOMER_DB_PASSWORD__|$${HOMER_DB_PASSWORD:-change-me-local-only}|g" \
+          -e "s|__HOMER_ADMIN_PASSWORD__|$${HOMER_ADMIN_PASSWORD:-change-me-local-only}|g" \
+          -e "s|__HOMER_OIDC_ENABLE__|$${HOMER_OIDC_ENABLE:-false}|g" \
+          -e "s|__HOMER_OIDC_CLIENT_ID__|$${HOMER_OIDC_CLIENT_ID:-homer}|g" \
+          -e "s|__HOMER_OIDC_CLIENT_SECRET__|$${HOMER_OIDC_CLIENT_SECRET:-change-me-local-only}|g" \
+          -e "s|__HOMER_OIDC_REALM__|$${HOMER_OIDC_REALM:-ngn-sip-lab}|g" \
+          -e "s|__HOMER_OIDC_BROWSER_BASE_URL__|$${HOMER_OIDC_BROWSER_BASE_URL:-http://localhost:8080}|g" \
+          -e "s|__HOMER_OIDC_BACKEND_BASE_URL__|$${HOMER_OIDC_BACKEND_BASE_URL:-http://keycloak:8080}|g" \
+          -e "s|__HOMER_OIDC_REDIRECT_URI__|$${HOMER_OIDC_REDIRECT_URI:-http://localhost:9080/api/v3/oauth2/auth}|g" \
+          -e "s|__HOMER_OIDC_USER_TOKEN__|$${HOMER_OIDC_USER_TOKEN:-change-me-local-only-homer-oauth-user-token-rotate}|g" \
+          /config/settings.js > /tmp/webapp_config.json
+        exec /homer-app -webapp-config-path=/tmp
+    environment:
+      HOMER_DB_PASSWORD: ${HOMER_DB_PASSWORD:-change-me-local-only}
+      HOMER_ADMIN_PASSWORD: ${HOMER_ADMIN_PASSWORD:-change-me-local-only}
+      # Keycloak OIDC for Homer (gated). Inert until HOMER_OIDC_ENABLE=true.
+      # Split-horizon: browser base = localhost:8080, backchannel = keycloak:8080.
+      # Redirect URI registered in Keycloak must match HOMER_OIDC_REDIRECT_URI.
+      # See docs/sso/sso_runbook.md. Defaults keep current behavior unchanged.
+      HOMER_OIDC_ENABLE: ${HOMER_OIDC_ENABLE:-false}
+      HOMER_OIDC_CLIENT_ID: ${HOMER_OIDC_CLIENT_ID:-homer}
+      HOMER_OIDC_CLIENT_SECRET: ${HOMER_OIDC_CLIENT_SECRET:-change-me-local-only}
+      HOMER_OIDC_REALM: ${HOMER_OIDC_REALM:-ngn-sip-lab}
+      HOMER_OIDC_BROWSER_BASE_URL: ${HOMER_OIDC_BROWSER_BASE_URL:-http://localhost:8080}
+      HOMER_OIDC_BACKEND_BASE_URL: ${HOMER_OIDC_BACKEND_BASE_URL:-http://keycloak:8080}
+      HOMER_OIDC_REDIRECT_URI: ${HOMER_OIDC_REDIRECT_URI:-http://localhost:9080/api/v3/oauth2/auth}
+      HOMER_OIDC_USER_TOKEN: ${HOMER_OIDC_USER_TOKEN:-change-me-local-only-homer-oauth-user-token-rotate}
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 300
+    mem_limit: 1024m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+      - /usr/local/homer/log:mode=0755,size=32m
+    volumes:
+      - ./infra/homer/webapp/settings.js:/config/settings.js:ro
+    ports:
+      - "${DEV_BIND_IP:-127.0.0.1}:9080:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --tries=1 'http://127.0.0.1/' >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+    restart: unless-stopped
+    networks:
+      sip_lab:
+        aliases:
+          - homer-webapp
+          - homer-app
+
+volumes:
+  homer_postgres_data:
+  # Shared with the observability (Vector) stack, which tails HEP SIP events
+  # from here. Pinned to an explicit name so the cross-project consumer
+  # references it deterministically instead of guessing the auto-name.
+  hep_bridge_logs:
+    name: ngn-sip-hep-bridge-logs
+  hep_bridge_state:
+
+networks:
+  sip_lab:
+    external: true
+    name: ngn-sip_sip_lab

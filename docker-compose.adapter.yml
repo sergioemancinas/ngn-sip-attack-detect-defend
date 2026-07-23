@@ -1,0 +1,60 @@
+# Kamailio -> Wazuh NGN-SEC event adapter.
+# Reads detections from ClickHouse and emits NGN-SEC syslog lines into the
+# Wazuh manager log volume so the SIP correlation rules (100100..100134) fire
+# on real traffic. Deploy alongside the wazuh stack (project name ngn-sip-wazuh
+# comes from docker-compose.wazuh.yml):
+#   docker compose -f docker-compose.wazuh.yml -f docker-compose.adapter.yml up -d --build kamailio-wazuh-adapter
+services:
+  kamailio-wazuh-adapter:
+    build: ./siem/adapter
+    image: ngn-sip/kamailio-wazuh-adapter:1.0.0
+    container_name: ngn-sip-kamailio-wazuh-adapter-1
+    restart: unless-stopped
+    networks: [sip_lab]
+    environment:
+      # 'clickhouse' is the service's network alias on sip_lab (set in
+      # docker-compose.observability.yml), stable across compose project names.
+      CLICKHOUSE_URL: "http://clickhouse:8123"
+      CLICKHOUSE_USER: "${CLICKHOUSE_USER:-ngn}"
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-}"
+      ADAPTER_LOG: "/out/ngnsec/kamailio-ngnsec.log"
+      POLL_SECONDS: "30"
+      LOOKBACK_SECONDS: "120"
+      MAX_PER_SRC: "12"
+      EXTERNAL_ONLY: "1"
+    volumes:
+      - wazuh_manager_logs:/out
+    cap_drop: [ALL]
+    cap_add: [DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 100
+    mem_limit: 128m
+    cpus: 0.5
+    # Liveness via the adapter's watermark file: the poll loop rewrites it after
+    # every successful ClickHouse round-trip (see ADAPTER_WATERMARK default in
+    # siem/adapter/kamailio_wazuh_adapter.py), so a stale file means the adapter
+    # is wedged or ClickHouse is unreachable. 150s = 5x POLL_SECONDS.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import os,sys,time; st=os.stat('/tmp/kw_adapter.watermark'); sys.exit(0 if time.time()-st.st_mtime < 150 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+
+networks:
+  sip_lab:
+    external: true
+    name: ngn-sip_sip_lab
+
+volumes:
+  wazuh_manager_logs:
+    external: true
+    # Pinned explicitly in docker-compose.wazuh.yml to this stable name; the
+    # adapter tails the Wazuh manager logs from the same shared volume.
+    name: ngn-sip-wazuh-manager-logs

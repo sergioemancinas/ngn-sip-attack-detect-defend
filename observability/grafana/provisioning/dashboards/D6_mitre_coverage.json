@@ -1,0 +1,43 @@
+{
+  "uid": "d6-mitre-coverage",
+  "title": "D6 MITRE ATT&CK Coverage (SIP)",
+  "tags": ["ngn-sip", "mitre"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": {"from": "now-7d", "to": "now"},
+  "panels": [
+    {
+      "id": 1, "type": "table", "title": "Suricata signatures by MITRE technique (from rule metadata)",
+      "description": "Suricata signature SIDs grouped by the mitre_technique metadata field; alerts in last 7 days.",
+      "gridPos": {"h": 10, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "rawSql": "SELECT sig_id, signature, count() AS hits FROM ngn_sip.suricata_alerts WHERE event_time >= now() - INTERVAL 7 DAY GROUP BY sig_id, signature ORDER BY hits DESC"}]
+    },
+    {
+      "id": 2, "type": "table", "title": "Ground-truth attacks by MITRE technique",
+      "gridPos": {"h": 10, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "rawSql": "SELECT mitre_technique, phase, count() AS observations, groupArrayDistinct(attack_id) AS attack_ids FROM ngn_sip.attack_labels WHERE label_time >= now() - INTERVAL 7 DAY GROUP BY mitre_technique, phase ORDER BY observations DESC"}]
+    },
+    {
+      "id": 10, "type": "stat", "title": "Distinct MITRE techniques covered (attack_labels)",
+      "gridPos": {"h": 5, "w": 8, "x": 0, "y": 10},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "rawSql": "SELECT uniq(mitre_technique) FROM ngn_sip.attack_labels"}]
+    },
+    {
+      "id": 11, "type": "stat", "title": "Distinct attack phases observed",
+      "gridPos": {"h": 5, "w": 8, "x": 8, "y": 10},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "rawSql": "SELECT uniq(phase) FROM ngn_sip.attack_labels"}]
+    },
+    {
+      "id": 12, "type": "stat", "title": "Distinct Suricata SIDs that fired",
+      "gridPos": {"h": 5, "w": 8, "x": 16, "y": 10},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "rawSql": "SELECT uniq(sig_id) FROM ngn_sip.suricata_alerts"}]
+    }
+  ]
+}

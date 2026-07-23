@@ -1,0 +1,44 @@
+title: Kamailio Ban Table Drop Hit
+id: 089a6934-c652-4b27-8ef2-077022e017c9
+status: test
+description: Detects Kamailio logs that show traffic dropped from an already banned SIP source.
+references:
+  - https://attack.mitre.org/techniques/T1499/
+logsource:
+  product: ngn-sip
+  service: kamailio
+  definition: Kamailio control-plane syslog event. The detection relies on the raw Dropping banned SIP source keyword.
+detection:
+  keywords:
+    - Dropping banned SIP source
+  condition: keywords
+falsepositives:
+  - Repeated retransmits from a previously blocked legitimate test host.
+level: medium
+tags:
+  - attack.impact
+  - attack.t1499
+---
+title: SIP SOAR Action Acknowledgement
+id: fad0089c-ae8e-495e-b443-bab6f9f687bc
+status: test
+description: Detects Kamailio or Asterisk-side logs that confirm a SIP control-plane response playbook completed.
+references:
+  - https://attack.mitre.org/techniques/T1499/
+logsource:
+  product: ngn-sip
+  service: sip-control-plane
+  definition: SIP control-plane log event. The detection uses raw acknowledgement keywords because no dedicated SOAR fields are decoded.
+detection:
+  keywords:
+    - SOAR-ACTION-TAKEN
+    - SOAR_ACTION_TAKEN
+    - soar_ack
+    - response playbook completed
+  condition: keywords
+falsepositives:
+  - Test-mode workflow acknowledgements from tabletop exercises.
+level: low
+tags:
+  - attack.impact
+  - attack.t1499

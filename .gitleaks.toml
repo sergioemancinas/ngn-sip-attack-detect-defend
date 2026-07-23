@@ -1,0 +1,22 @@
+# Gitleaks allowlist. Each entry must justify the exception.
+
+[allowlist]
+description = "Documented local-lab fake credentials and fixture data"
+
+# Demo replay commands intentionally show the local-only ClickHouse and Wazuh
+# defaults so a reviewer can reproduce the dry-run. None of these literals are
+# reachable from outside the developer's loopback Docker network. The same
+# values appear in .env.example and the readme already states they must be
+# rotated on the campus VM.
+regexes = [
+  '''curl[^\n]*-u[ \t]+ngn:change-me-local-only''',
+  '''ngn:change-me-local-only''',
+  '''change-me-local-only''',
+]
+
+paths = [
+  '''\.env\.example''',
+  '''docker-compose\..*\.yml''',
+  '''siem/wazuh/.*\.ya?ml''',
+  '''observability/.*\.ya?ml''',
+]

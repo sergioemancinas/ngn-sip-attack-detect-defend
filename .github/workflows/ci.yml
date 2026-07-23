@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint / static checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Shell syntax
+        run: |
+          bash -n scripts/*.sh
+          bash -n siem/wazuh/integrations/install_integrations.sh
+          bash -n siem/wazuh/active-response/*.sh
+
+      - name: Install yamllint
+        run: python3 -m pip install --user yamllint
+
+      - name: Run yamllint
+        run: |
+          "$HOME/.local/bin/yamllint" \
+            -d '{extends: default, rules: {line-length: disable, truthy: disable, document-start: disable, comments-indentation: disable}}' \
+            docker-compose*.yml .github/workflows/*.yml
+
+      - name: Run hadolint
+        uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5 # v3.3.0
+        with:
+          dockerfile: Dockerfile
+          recursive: true
+          config: .hadolint.yaml
+          failure-threshold: error
+
+  validate-compose:
+    name: Compose config (${{ matrix.compose }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        compose:
+          - docker-compose.yml
+          - docker-compose.attack.yml
+          - docker-compose.ml.yml
+          - docker-compose.observability.yml
+          - docker-compose.soar.yml
+          - docker-compose.wazuh.yml
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Validate Compose config
+        run: docker compose -f "${{ matrix.compose }}" config --quiet
+
+  kamailio-config:
+    name: Kamailio syntax check
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build Kamailio image
+        run: docker compose build --pull kamailio
+      - name: Validate Kamailio config
+        run: docker compose run --rm --no-deps kamailio kamailio -c -f /etc/kamailio/kamailio.cfg
+
+  python-tests:
+    name: Python tests (ml/tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install ML test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest numpy pandas scikit-learn xgboost clickhouse-driver
+          python -m pip install -r observability/hep-bridge/requirements.txt
+          python -m pip install -e ml/stage1 -e ml/stage2
+      - name: Run pytest
+        run: |
+          tests="$(find ml scripts attacks -type f \( -name 'test_*.py' -o -name '*_test.py' \) -print)"
+          if [ -z "$tests" ]; then
+            echo "No Python tests found; expected ml/tests to exist." >&2
+            exit 1
+          fi
+          echo "Running:"; echo "$tests"
+          python -m pytest $tests
+
+  observability-smoke:
+    name: Observability smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: validate-compose
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Create external Compose resources
+        run: |
+          docker network create ngn-sip_sip_lab || true
+          docker volume create ngn-sip_asterisk_logs || true
+          docker volume create ngn-sip-ids_suricata_logs || true
+          docker volume create ngn-sip-wazuh-manager-logs || true
+          docker volume create ngn-sip-hep-bridge-logs || true
+      - name: Start observability stack
+        run: DEV_BIND_IP=127.0.0.1 docker compose -f docker-compose.observability.yml up -d
+      - name: Wait for observability health
+        run: |
+          timeout 420 bash -c '
+            until \
+              curl -sf http://127.0.0.1:8123/ping >/dev/null &&
+              curl -sf http://127.0.0.1:3000/api/health >/dev/null &&
+              curl -sf http://127.0.0.1:9090/-/healthy >/dev/null
+            do
+              docker compose -f docker-compose.observability.yml ps
+              sleep 10
+            done
+          '
+      - name: Run obs smoke
+        run: make obs-smoke
+      - name: Tear down observability stack
+        if: always()
+        run: docker compose -f docker-compose.observability.yml down -v

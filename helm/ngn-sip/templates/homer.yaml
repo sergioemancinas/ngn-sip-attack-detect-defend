@@ -1,0 +1,452 @@
+{{- if .Values.tiers.homer }}
+# ===========================================================================
+# Homer 7 SIP capture: homer-postgres + heplify-server + hep-bridge + webapp.
+# heplify-server and webapp render their config from a template at startup
+# (sed on a mounted read-only config -> /tmp), exactly as in Compose.
+# ===========================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homer-heplify-config
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "heplify-server") | nindent 4 }}
+data:
+  {{- (.Files.Glob "files/homer/heplify-server.toml").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homer-webapp-config
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "homer-webapp") | nindent 4 }}
+data:
+  {{- (.Files.Glob "files/homer/webapp/settings.js").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homer-postgres-init
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "homer-postgres") | nindent 4 }}
+data:
+  {{- (.Files.Glob "files/homer/postgres-init/*.sql").AsConfig | nindent 2 }}
+---
+# --------------------------- homer-postgres --------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: homer-postgres
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "homer-postgres") | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "homer-postgres") | nindent 4 }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+# Compose aliases homer-postgres as `homer-db` too; ExternalName-free alias
+# via a second Service pointing at the same selector.
+apiVersion: v1
+kind: Service
+metadata:
+  name: homer-db
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "homer-postgres") | nindent 4 }}
+spec:
+  selector:
+    {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "homer-postgres") | nindent 4 }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: homer-postgres
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "homer-postgres") | nindent 4 }}
+spec:
+  serviceName: homer-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "homer-postgres") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "homer-postgres") | nindent 8 }}
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: {{ .Values.images.homerPostgres | quote }}
+          imagePullPolicy: {{ include "ngn-sip.pullPolicy" . }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "SETUID", "SETGID", "FOWNER"]
+          env:
+            - name: POSTGRES_DB
+              value: homer_data
+            - name: POSTGRES_USER
+              value: homer_user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: ngn-sip-secrets, key: HOMER_DB_PASSWORD }
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          resources:
+            {{- toYaml .Values.homerPostgres.resources | nindent 12 }}
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+      volumes:
+        - name: init
+          configMap:
+            name: homer-postgres-init
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- include "ngn-sip.storageClass" . | nindent 8 }}
+        resources:
+          requests:
+            storage: {{ .Values.homerPostgres.storage }}
+---
+# --------------------------- heplify-server --------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: heplify-server
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "heplify-server") | nindent 4 }}
+spec:
+  selector:
+    {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "heplify-server") | nindent 4 }}
+  ports:
+    - name: hep-udp
+      port: 9060
+      targetPort: 9060
+      protocol: UDP
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: homer-hep
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "heplify-server") | nindent 4 }}
+spec:
+  selector:
+    {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "heplify-server") | nindent 4 }}
+  ports:
+    - name: hep-udp
+      port: 9060
+      targetPort: 9060
+      protocol: UDP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: heplify-server
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "heplify-server") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "heplify-server") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "heplify-server") | nindent 8 }}
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: heplify-server
+          image: {{ .Values.images.heplify | quote }}
+          imagePullPolicy: {{ include "ngn-sip.pullPolicy" . }}
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              sed "s|__HOMER_DB_PASSWORD__|${HOMER_DB_PASSWORD:-change-me-local-only}|g" \
+                /config/heplify-server.toml > /tmp/heplify-server.toml
+              exec /root/heplify-server -config /tmp/heplify-server.toml
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: HOMER_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: ngn-sip-secrets, key: HOMER_DB_PASSWORD }
+          ports:
+            - containerPort: 9060
+              protocol: UDP
+            - containerPort: 9090
+          resources:
+            {{- toYaml .Values.heplify.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 12
+          volumeMounts:
+            - name: config
+              mountPath: /config/heplify-server.toml
+              subPath: heplify-server.toml
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: homer-heplify-config
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+---
+# ----------------------------- hep-bridge ----------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: hep-bridge
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "hep-bridge") | nindent 4 }}
+spec:
+  selector:
+    {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "hep-bridge") | nindent 4 }}
+  ports:
+    - name: placeholder
+      port: 9061
+      targetPort: 9061
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hep-bridge-state
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "hep-bridge") | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- include "ngn-sip.storageClass" . | nindent 2 }}
+  resources:
+    requests:
+      storage: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hep-bridge
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "hep-bridge") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "hep-bridge") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "hep-bridge") | nindent 8 }}
+    spec:
+      securityContext:
+        fsGroup: {{ .Values.sharedLogs.gid }}
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: hep-bridge
+          image: {{ .Values.images.hepBridge | quote }}
+          imagePullPolicy: {{ include "ngn-sip.pullPolicy" . }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: HOMER_PG_HOST
+              value: homer-postgres
+            - name: HOMER_PG_PORT
+              value: "5432"
+            - name: HOMER_PG_DATABASE
+              value: homer_data
+            - name: HOMER_PG_USER
+              value: homer_user
+            - name: HOMER_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: ngn-sip-secrets, key: HOMER_DB_PASSWORD }
+            - name: HEP_BRIDGE_OUTPUT
+              value: /logs/hep/events.ndjson
+            - name: HEP_BRIDGE_STATE
+              value: /var/lib/hep-bridge/state.json
+            - name: HEP_BRIDGE_POLL_SECONDS
+              value: "5"
+            - name: HEP_BRIDGE_BATCH_SIZE
+              value: "500"
+          resources:
+            {{- toYaml .Values.hepBridge.resources | nindent 12 }}
+          volumeMounts:
+            # Writes HEP events onto the shared RWX PVC (subPath hep) so Vector
+            # can tail them (Compose: hep_bridge_logs volume shared with Vector).
+            - name: shared-logs
+              mountPath: /logs/hep
+              subPath: hep
+            - name: state
+              mountPath: /var/lib/hep-bridge
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: shared-logs
+          persistentVolumeClaim:
+            claimName: ngn-sip-shared-logs
+        - name: state
+          persistentVolumeClaim:
+            claimName: hep-bridge-state
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Mi
+---
+# ----------------------------- homer-webapp --------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: homer-webapp
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "homer-webapp") | nindent 4 }}
+spec:
+  selector:
+    {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "homer-webapp") | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: homer-app
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "homer-webapp") | nindent 4 }}
+spec:
+  selector:
+    {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "homer-webapp") | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homer-webapp
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "homer-webapp") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "homer-webapp") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "homer-webapp") | nindent 8 }}
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: homer-webapp
+          image: {{ .Values.images.homerWebapp | quote }}
+          imagePullPolicy: {{ include "ngn-sip.pullPolicy" . }}
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              sed \
+                -e "s|__HOMER_DB_PASSWORD__|${HOMER_DB_PASSWORD:-change-me-local-only}|g" \
+                -e "s|__HOMER_ADMIN_PASSWORD__|${HOMER_ADMIN_PASSWORD:-change-me-local-only}|g" \
+                -e "s|__HOMER_OIDC_ENABLE__|${HOMER_OIDC_ENABLE:-false}|g" \
+                -e "s|__HOMER_OIDC_CLIENT_ID__|${HOMER_OIDC_CLIENT_ID:-homer}|g" \
+                -e "s|__HOMER_OIDC_CLIENT_SECRET__|${HOMER_OIDC_CLIENT_SECRET:-change-me-local-only}|g" \
+                -e "s|__HOMER_OIDC_REALM__|${HOMER_OIDC_REALM:-ngn-sip-lab}|g" \
+                -e "s|__HOMER_OIDC_BROWSER_BASE_URL__|${HOMER_OIDC_BROWSER_BASE_URL:-http://localhost:8080}|g" \
+                -e "s|__HOMER_OIDC_BACKEND_BASE_URL__|${HOMER_OIDC_BACKEND_BASE_URL:-http://keycloak:8080}|g" \
+                -e "s|__HOMER_OIDC_REDIRECT_URI__|${HOMER_OIDC_REDIRECT_URI:-http://localhost:9080/api/v3/oauth2/auth}|g" \
+                -e "s|__HOMER_OIDC_USER_TOKEN__|${HOMER_OIDC_USER_TOKEN:-change-me-local-only-homer-oauth-user-token-rotate}|g" \
+                /config/settings.js > /tmp/webapp_config.json
+              exec /homer-app -webapp-config-path=/tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["NET_BIND_SERVICE"]
+          env:
+            - name: HOMER_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: ngn-sip-secrets, key: HOMER_DB_PASSWORD }
+            - name: HOMER_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: ngn-sip-secrets, key: HOMER_ADMIN_PASSWORD }
+            - name: HOMER_OIDC_ENABLE
+              value: "false"
+          ports:
+            - containerPort: 80
+          resources:
+            {{- toYaml .Values.homerWebapp.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 45
+            periodSeconds: 15
+            failureThreshold: 12
+          volumeMounts:
+            - name: config
+              mountPath: /config/settings.js
+              subPath: settings.js
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: log
+              mountPath: /usr/local/homer/log
+      volumes:
+        - name: config
+          configMap:
+            name: homer-webapp-config
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+        - name: log
+          emptyDir:
+            sizeLimit: 32Mi
+{{- end }}

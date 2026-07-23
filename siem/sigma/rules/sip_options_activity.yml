@@ -1,0 +1,69 @@
+title: SIP OPTIONS Keepalive Baseline
+id: 5ecaf025-0d76-4347-9ae1-70483c704675
+status: test
+description: Detects Kamailio NGN-SEC OPTIONS events explicitly tagged as keepalive, qualify, NAT ping, or empty R-URI baseline traffic.
+references:
+  - https://attack.mitre.org/techniques/T1071/001/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio NGN-SEC event_type and reason fields decoded by siem/wazuh/decoders/kamailio.xml.
+detection:
+  selection_event:
+    event_type: OPTIONS
+  selection_reason:
+    reason|re: '(?i)(keepalive|qualify|nat[-_ ]ping|empty[-_ ]ruri)'
+  condition: selection_event and selection_reason
+falsepositives:
+  - Expected operational SIP keepalive traffic.
+level: informational
+tags:
+  - attack.command_and_control
+  - attack.t1071.001
+---
+title: SIP OPTIONS Probe Style Traffic
+id: 315f64cd-a01a-47ba-b4f8-4ffcad33e764
+name: sip_options_probe_style_traffic
+status: test
+description: Detects Kamailio NGN-SEC OPTIONS events tagged as non-keepalive probe traffic or distinct To-URI scanning.
+references:
+  - https://attack.mitre.org/techniques/T1595/001/
+logsource:
+  product: ngn-sip
+  service: kamailio-ngn-sec
+  definition: Kamailio NGN-SEC event_type and reason fields decoded by siem/wazuh/decoders/kamailio.xml.
+detection:
+  selection_event:
+    event_type: OPTIONS
+  selection_reason:
+    reason|re: '(?i)(distinct[-_ ]to[-_ ]uri|to[-_ ]uri[-_ ]scan|to=sip:[^[:space:]";>]+@)'
+  condition: selection_event and selection_reason
+falsepositives:
+  - Approved SIP monitoring probes that target multiple extensions.
+level: low
+tags:
+  - attack.reconnaissance
+  - attack.t1595.001
+---
+title: High Rate SIP OPTIONS Scan Sweep
+id: 8a125947-6171-4765-ab88-12c407b1310b
+status: test
+description: Detects twelve or more probe-style SIP OPTIONS events from the same source IP within 90 seconds.
+references:
+  - https://attack.mitre.org/techniques/T1595/001/
+correlation:
+  type: event_count
+  rules:
+    - sip_options_probe_style_traffic
+  group-by:
+    - srcip
+  timespan: 90s
+  condition:
+    gte: 12
+  generate: true
+falsepositives:
+  - Aggressive but approved SIP inventory scans.
+level: high
+tags:
+  - attack.reconnaissance
+  - attack.t1595.001

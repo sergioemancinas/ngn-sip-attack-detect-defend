@@ -1,0 +1,124 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [ { "color": "blue", "value": null } ] }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [ { "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" }, "editorType": "sql", "format": "table", "rawSql": "SELECT count() AS alerts FROM ngn_sip.wazuh_alerts WHERE rule_id BETWEEN 100100 AND 100199 AND $__timeFilter(alert_time)", "refId": "A" } ],
+      "title": "Wazuh SIP detections",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [ { "color": "orange", "value": null } ] }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [ { "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" }, "editorType": "sql", "format": "table", "rawSql": "SELECT count(DISTINCT srcip) AS sources FROM ngn_sip.wazuh_alerts WHERE rule_id BETWEEN 100100 AND 100199 AND srcip != '' AND $__timeFilter(alert_time)", "refId": "A" } ],
+      "title": "Attacking source IPs",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 7 }, { "color": "orange", "value": 10 }, { "color": "red", "value": 12 } ] }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [ { "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" }, "editorType": "sql", "format": "table", "rawSql": "SELECT max(rule_level) AS max_level FROM ngn_sip.wazuh_alerts WHERE rule_id BETWEEN 100100 AND 100199 AND $__timeFilter(alert_time)", "refId": "A" } ],
+      "title": "Highest severity (rule level)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [ { "color": "purple", "value": null } ] }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [ { "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" }, "editorType": "sql", "format": "table", "rawSql": "SELECT count(DISTINCT rule_id) AS rules FROM ngn_sip.wazuh_alerts WHERE rule_id BETWEEN 100100 AND 100199 AND $__timeFilter(alert_time)", "refId": "A" } ],
+      "title": "Distinct SIP rules fired",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisPlacement": "auto", "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 1, "stacking": { "mode": "normal" } }, "mappings": [], "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "id": 5,
+      "options": { "legend": { "displayMode": "table", "placement": "right", "showLegend": true, "calcs": ["sum"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [ { "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" }, "editorType": "sql", "format": "timeseries", "rawSql": "SELECT toStartOfInterval(alert_time, INTERVAL 1 MINUTE) AS time, concat(toString(rule_id), ' ', substring(rule_description, 1, 40)) AS metric, count() AS alerts FROM ngn_sip.wazuh_alerts WHERE rule_id BETWEEN 100100 AND 100199 AND $__timeFilter(alert_time) GROUP BY time, metric ORDER BY time", "refId": "A" } ],
+      "title": "SIP detections over time (by rule)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": { "defaults": { "color": { "mode": "continuous-YlOrRd" }, "custom": { "axisPlacement": "auto", "fillOpacity": 80, "lineWidth": 1 }, "mappings": [], "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "id": 6,
+      "options": { "barRadius": 0, "barWidth": 0.8, "groupWidth": 0.7, "legend": { "displayMode": "hidden", "showLegend": false }, "orientation": "horizontal", "showValue": "always", "tooltip": { "mode": "single", "sort": "none" }, "xField": "srcip" },
+      "targets": [ { "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" }, "editorType": "sql", "format": "table", "rawSql": "SELECT srcip, count() AS alerts FROM ngn_sip.wazuh_alerts WHERE rule_id BETWEEN 100100 AND 100199 AND srcip != '' AND $__timeFilter(alert_time) GROUP BY srcip ORDER BY alerts DESC LIMIT 15", "refId": "A" } ],
+      "title": "Top flagged source IPs",
+      "type": "barchart"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 10 }, { "color": "red", "value": 12 } ] } }, "overrides": [ { "matcher": { "id": "byName", "options": "max_level" }, "properties": [ { "id": "custom.cellOptions", "value": { "type": "color-background" } } ] } ] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "id": 7,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false }, "showHeader": true, "sortBy": [ { "desc": true, "displayName": "alerts" } ] },
+      "targets": [ { "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" }, "editorType": "sql", "format": "table", "rawSql": "SELECT rule_id, any(rule_description) AS description, max(rule_level) AS max_level, arrayStringConcat(groupUniqArrayArray(rule_mitre_id), ', ') AS mitre, count() AS alerts FROM ngn_sip.wazuh_alerts WHERE rule_id BETWEEN 100100 AND 100199 AND $__timeFilter(alert_time) GROUP BY rule_id ORDER BY alerts DESC LIMIT 30", "refId": "A" } ],
+      "title": "SIP rules fired (taxonomy)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "mappings": [], "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "id": 8,
+      "options": { "legend": { "displayMode": "table", "placement": "right", "showLegend": true, "values": ["value"] }, "pieType": "donut", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "tooltip": { "mode": "single", "sort": "desc" } },
+      "targets": [ { "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" }, "editorType": "sql", "format": "table", "rawSql": "SELECT technique, count() AS alerts FROM ngn_sip.wazuh_alerts ARRAY JOIN rule_mitre_id AS technique WHERE rule_id BETWEEN 100100 AND 100199 AND $__timeFilter(alert_time) GROUP BY technique ORDER BY alerts DESC LIMIT 15", "refId": "A" } ],
+      "title": "MITRE ATT&CK techniques (SIP arm)",
+      "type": "piechart"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 10 }, { "color": "red", "value": 12 } ] }, "overrides": [ { "matcher": { "id": "byName", "options": "rule_level" }, "properties": [ { "id": "custom.cellOptions", "value": { "type": "color-background" } } ] } ] } },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 20 },
+      "id": 9,
+      "options": { "cellHeight": "sm", "footer": { "show": false }, "showHeader": true, "sortBy": [ { "desc": true, "displayName": "alert_time" } ] },
+      "targets": [ { "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" }, "editorType": "sql", "format": "table", "rawSql": "SELECT alert_time, rule_id, rule_level, srcip, rule_description, arrayStringConcat(rule_mitre_id, ', ') AS mitre FROM ngn_sip.wazuh_alerts WHERE rule_id BETWEEN 100100 AND 100199 AND $__timeFilter(alert_time) ORDER BY alert_time DESC LIMIT 200", "refId": "A" } ],
+      "title": "Recent SIP detections (live feed)",
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 40,
+  "tags": ["sip", "clickhouse", "d7", "wazuh", "correlation", "siem"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "D7 Wazuh SIP Correlation",
+  "uid": "d7-wazuh-sip-correlation",
+  "version": 1,
+  "weekStart": ""
+}

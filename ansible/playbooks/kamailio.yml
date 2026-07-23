@@ -1,0 +1,12 @@
+---
+- name: Configure Kamailio SIP edge
+  hosts: sip-kamailio-01
+  become: true
+  roles:
+    - common
+  tasks:
+    - name: Record Kamailio target version
+      ansible.builtin.debug:
+        msg: "Install/configure Kamailio 5.8.8-ms-compatible package or repo-pinned build in implementation pass."
+      tags: [kamailio, scaffold]
+

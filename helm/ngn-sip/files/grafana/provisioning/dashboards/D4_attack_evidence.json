@@ -1,0 +1,61 @@
+{
+  "uid": "d4-attack-evidence",
+  "title": "D4 Attack Evidence (ground truth + IDS)",
+  "tags": ["ngn-sip", "detection"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {"from": "now-24h", "to": "now"},
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Total Suricata alerts",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "rawSql": "SELECT count() FROM ngn_sip.suricata_alerts WHERE $__timeFilter(event_time)"}],
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"value": 0, "color": "green"}, {"value": 50, "color": "yellow"}, {"value": 200, "color": "red"}]}}}
+    },
+    {
+      "id": 2, "type": "stat", "title": "Unique signatures fired",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "rawSql": "SELECT uniq(sig_id) FROM ngn_sip.suricata_alerts WHERE $__timeFilter(event_time)"}]
+    },
+    {
+      "id": 3, "type": "stat", "title": "Unique attacker IPs",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "rawSql": "SELECT uniq(src_ip) FROM ngn_sip.suricata_alerts WHERE $__timeFilter(event_time)"}]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Ground-truth labels",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "rawSql": "SELECT count() FROM ngn_sip.attack_labels WHERE $__timeFilter(label_time)"}]
+    },
+    {
+      "id": 10, "type": "table", "title": "Top firing signatures",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 4},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "rawSql": "SELECT sig_id, signature, count() AS hits, uniq(src_ip) AS sources FROM ngn_sip.suricata_alerts WHERE $__timeFilter(event_time) GROUP BY sig_id, signature ORDER BY hits DESC LIMIT 25"}]
+    },
+    {
+      "id": 11, "type": "table", "title": "Recent ground-truth attack labels",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 4},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "rawSql": "SELECT label_time, toString(src_ip) AS src_ip, attack_id, mitre_technique, phase, notes FROM ngn_sip.attack_labels WHERE $__timeFilter(label_time) ORDER BY label_time DESC LIMIT 25"}]
+    },
+    {
+      "id": 12, "type": "table", "title": "MITRE technique pivot",
+      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 13},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "rawSql": "SELECT mitre_technique, phase, count() AS labels, uniq(src_ip) AS sources, arrayStringConcat(groupArrayDistinct(attack_id), ', ') AS attack_ids FROM ngn_sip.attack_labels WHERE $__timeFilter(label_time) AND mitre_technique != '' GROUP BY mitre_technique, phase ORDER BY labels DESC, mitre_technique"}]
+    },
+    {
+      "id": 20, "type": "timeseries", "title": "Alerts per minute by SID",
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 20},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "rawSql": "SELECT toStartOfMinute(event_time) AS time, toString(sig_id) AS sig, count() AS hits FROM ngn_sip.suricata_alerts WHERE $__timeFilter(event_time) GROUP BY time, sig ORDER BY time"}]
+    }
+  ]
+}

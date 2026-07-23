@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ngn-sip-mlflow"
+version = "0.1.0"
+description = "MLflow scaffolding for NGN SIP detection evaluation"
+requires-python = ">=3.12"
+dependencies = [
+  "mlflow>=2.18",
+  "scikit-learn",
+  "clickhouse-driver",
+  "click",
+]

@@ -1,0 +1,20 @@
+{{- if or .Values.tiers.vector .Values.tiers.ml .Values.tiers.wazuhManager }}
+# Shared log surface (Compose: wazuh_manager_logs named volume).
+# Wazuh manager writes alerts.json + ngnsec/ + ml/ RW (gid 999); Vector and the
+# ML services read/append. On K8s these are separate Pods so this MUST be RWX
+# (unlike a Compose named volume, which is node-local by definition). See
+# docs/05_kubernetes_migration.md §Shared logs / RWX for the provisioner caveat.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ngn-sip-shared-logs
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "shared-logs") | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.sharedLogs.accessMode }}
+  {{- include "ngn-sip.storageClass" . | nindent 2 }}
+  resources:
+    requests:
+      storage: {{ .Values.sharedLogs.storage }}
+{{- end }}

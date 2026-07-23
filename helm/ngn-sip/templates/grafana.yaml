@@ -1,0 +1,163 @@
+{{- if .Values.tiers.grafana }}
+# Grafana with ClickHouse datasource + Keycloak OIDC. Compose: cap_drop ALL,
+# read-only rootfs, no-new-privileges, writable tmpfs for /tmp + /var/log.
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "grafana") | nindent 4 }}
+spec:
+  selector:
+    {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "grafana") | nindent 4 }}
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "grafana") | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- include "ngn-sip.storageClass" . | nindent 2 }}
+  resources:
+    requests:
+      storage: {{ .Values.grafana.storage }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  labels:
+    {{- include "ngn-sip.labels" (dict "root" . "component" "grafana") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "grafana") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ngn-sip.selectorLabels" (dict "root" . "component" "grafana") | nindent 8 }}
+    spec:
+      securityContext:
+        runAsUser: 472
+        runAsGroup: 0
+        fsGroup: 472
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: grafana
+          image: {{ .Values.images.grafana | quote }}
+          imagePullPolicy: {{ include "ngn-sip.pullPolicy" . }}
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: {{ .Values.config.grafanaAdminUser | quote }}
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: ngn-sip-secrets, key: GRAFANA_ADMIN_PASSWORD }
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+            - name: GF_INSTALL_PLUGINS
+              value: grafana-clickhouse-datasource
+            - name: GF_SECURITY_ALLOW_EMBEDDING
+              value: "true"
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "true"
+            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+              value: "Viewer"
+            - name: CLICKHOUSE_USER
+              value: {{ .Values.config.clickhouseUser | quote }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: ngn-sip-secrets, key: CLICKHOUSE_PASSWORD }
+            # Keycloak OIDC. Backchannel hits the in-cluster keycloak Service;
+            # AUTH_URL stays browser-facing (localhost via tunnel/ingress).
+            - name: GF_AUTH_GENERIC_OAUTH_ENABLED
+              value: "true"
+            - name: GF_AUTH_GENERIC_OAUTH_NAME
+              value: "Keycloak"
+            - name: GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP
+              value: "true"
+            - name: GF_AUTH_GENERIC_OAUTH_CLIENT_ID
+              value: "grafana"
+            - name: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: { name: ngn-sip-secrets, key: GRAFANA_OIDC_CLIENT_SECRET }
+            - name: GF_AUTH_GENERIC_OAUTH_SCOPES
+              value: "openid profile email"
+            - name: GF_AUTH_GENERIC_OAUTH_AUTH_URL
+              value: "http://localhost:8080/realms/{{ .Values.config.keycloakRealm }}/protocol/openid-connect/auth"
+            - name: GF_AUTH_GENERIC_OAUTH_TOKEN_URL
+              value: "http://keycloak:8080/realms/{{ .Values.config.keycloakRealm }}/protocol/openid-connect/token"
+            - name: GF_AUTH_GENERIC_OAUTH_API_URL
+              value: "http://keycloak:8080/realms/{{ .Values.config.keycloakRealm }}/protocol/openid-connect/userinfo"
+            - name: GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH
+              value: "contains(roles[*], 'wazuh-admin') && 'Admin' || 'Viewer'"
+            - name: GF_AUTH_GENERIC_OAUTH_LOGIN_ATTRIBUTE_PATH
+              value: "preferred_username"
+            - name: GF_SERVER_ROOT_URL
+              value: {{ .Values.config.grafanaRootUrl | quote }}
+            - name: GF_SECURITY_COOKIE_SECURE
+              value: "false"
+          ports:
+            - containerPort: 3000
+          resources:
+            {{- toYaml .Values.grafana.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 12
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+              readOnly: true
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+              readOnly: true
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: logs
+              mountPath: /var/log/grafana
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: grafana-data
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: dashboard-provider
+          configMap:
+            name: grafana-dashboard-provider
+        - name: dashboards
+          configMap:
+            name: grafana-dashboards
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
+        - name: logs
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi
+{{- end }}

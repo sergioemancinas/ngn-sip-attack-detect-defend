@@ -1,0 +1,39 @@
+# TEMPLATE - rendered at container start by the wazuh-dashboard entrypoint
+# wrapper in docker-compose.wazuh.yml (mounted at
+# /tmp/opensearch_dashboards.template.yml, sed-rendered to
+# /usr/share/wazuh-dashboard/config/opensearch_dashboards.yml).
+# The Wazuh dashboard does NOT expand ${VAR:default} syntax itself, so the
+# OIDC client credentials are injected via __PLACEHOLDER__ substitution from:
+#   __KEYCLOAK_REALM__               <- KEYCLOAK_REALM               (default ngn-sip-lab)
+#   __KEYCLOAK_WAZUH_CLIENT_ID__     <- KEYCLOAK_WAZUH_CLIENT_ID     (default wazuh-dashboard)
+#   __KEYCLOAK_WAZUH_CLIENT_SECRET__ <- KEYCLOAK_WAZUH_CLIENT_SECRET (default change-me-local-only)
+server.host: 0.0.0.0
+server.port: 5601
+
+opensearch.hosts: https://wazuh-indexer:9200
+opensearch.ssl.verificationMode: certificate
+opensearch.ssl.certificateAuthorities: ["/usr/share/wazuh-dashboard/certs/root-ca.pem"]
+opensearch.requestHeadersWhitelist: ["securitytenant", "Authorization"]
+
+opensearch_security.multitenancy.enabled: false
+opensearch_security.readonly_mode.roles: ["kibana_read_only"]
+opensearch_security.auth.multiple_auth_enabled: false
+opensearch_security.auth.type: "openid"
+
+opensearch_security.ui.openid.login.buttonname: "Log in with Keycloak"
+opensearch_security.openid.connect_url: "http://keycloak:8080/realms/__KEYCLOAK_REALM__/.well-known/openid-configuration"
+opensearch_security.openid.base_redirect_url: "https://localhost:5601"
+opensearch_security.openid.client_id: "__KEYCLOAK_WAZUH_CLIENT_ID__"
+opensearch_security.openid.client_secret: "__KEYCLOAK_WAZUH_CLIENT_SECRET__"
+opensearch_security.openid.scope: "openid profile email"
+opensearch_security.openid.verify_hostnames: false
+opensearch_security.openid.refresh_tokens: true
+
+server.ssl.enabled: true
+server.ssl.key: "/usr/share/wazuh-dashboard/certs/wazuh-dashboard-key.pem"
+server.ssl.certificate: "/usr/share/wazuh-dashboard/certs/wazuh-dashboard.pem"
+
+uiSettings.overrides.defaultRoute: /app/wz-home
+opensearch_security.cookie.ttl: 900000
+opensearch_security.session.ttl: 900000
+opensearch_security.session.keepalive: true

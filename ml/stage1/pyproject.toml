@@ -1,0 +1,20 @@
+[project]
+name = "ngn-sip-stage1"
+version = "0.1.0"
+description = "Stage 1 rule-derived SIP alert classifier"
+requires-python = ">=3.11"
+dependencies = [
+  "clickhouse-driver>=0.2.9",
+  "joblib>=1.4.2",
+  "mlflow>=2.12.0",
+  "pandas>=2.2.0",
+  "scikit-learn>=1.4.0",
+  "xgboost>=2.0",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["features", "train", "predict"]

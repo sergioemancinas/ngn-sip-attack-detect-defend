@@ -1,0 +1,1939 @@
+{
+  "name": "SIP Response Orchestration (Wazuh -> Shuffle -> kamcmd-relay)",
+  "description": "Stage-3 graded SOAR workflow (docs/09_soar_runbook.md). Webhook receives high-severity Wazuh SIP alerts, validates the source IP literal, deduplicates per src_ip against ngn_sip.soar_cases, enriches from ClickHouse (ml_scores, llm_verdicts, suricata_alerts), applies the graded-response policy (ban only when Stage 1/2 corroborates or Wazuh level >= 12), enforces via kamcmd-relay (kamcmd htable.sets ban_table), always records a ngn_sip.soar_cases evidence row, and optionally notifies. kamailio-autoban remains the deterministic backstop.",
+  "start": "c1d2e3f4-1111-4a2b-9e10-0d5f3a1c9e02",
+  "workflow_variables": [
+    {
+      "description": "ClickHouse HTTP endpoint on the sip_lab network (CLICKHOUSE_HTTP_URL)",
+      "id": "bf605979-04b3-46e9-a94a-b0163f1dda7c",
+      "name": "clickhouse_http_url",
+      "value": "http://clickhouse:8123"
+    },
+    {
+      "description": "ClickHouse user (CLICKHOUSE_USER)",
+      "id": "a9c94079-4b52-46e2-8a1c-c73fd39882ca",
+      "name": "clickhouse_user",
+      "value": "ngn"
+    },
+    {
+      "description": "ClickHouse password (CLICKHOUSE_PASSWORD); provision_shuffle.sh overwrites from .env",
+      "id": "7d7bdfe2-cc31-4bc1-a81f-d377640c3e4a",
+      "name": "clickhouse_password",
+      "value": "change-me-local-only"
+    },
+    {
+      "description": "Ban enforcement endpoint (KAMCMD_BLOCK_RELAY_URL)",
+      "id": "6fb3a6e9-ccb1-4baf-af12-188ade53202c",
+      "name": "kamcmd_relay_url",
+      "value": "http://kamcmd-relay:8099/kamcmd-block"
+    },
+    {
+      "description": "Bearer token for kamcmd-relay (KAMCMD_BLOCK_RELAY_TOKEN); provision_shuffle.sh overwrites from .env",
+      "id": "fa995294-d5fc-4e88-a548-424055cd3709",
+      "name": "kamcmd_relay_token",
+      "value": "change-me-local-only"
+    },
+    {
+      "description": "Per-src_ip dedup window in seconds (SOAR_DEDUP_WINDOW_SECONDS)",
+      "id": "6f2fe67e-78f7-4545-8d0b-aacf2b0accd2",
+      "name": "soar_dedup_window_seconds",
+      "value": "300"
+    },
+    {
+      "description": "ML proba at/above which SOAR bans outright (ATTACK_SCORE_BAN_THRESHOLD)",
+      "id": "cdc1374b-a50e-4d31-97d5-62063ceca5e7",
+      "name": "attack_score_ban_threshold",
+      "value": "0.85"
+    },
+    {
+      "description": "ML proba below which no containment happens (ATTACK_SCORE_LOW_THRESHOLD)",
+      "id": "65cd0b39-2c6a-4fab-85a7-be9027af5588",
+      "name": "attack_score_low_threshold",
+      "value": "0.55"
+    },
+    {
+      "description": "ML proba treated as high-confidence attack corroboration (ML_ATTACK_SCORE_HIGH)",
+      "id": "82a3b987-36cf-46e7-adfc-0b509d10236b",
+      "name": "ml_attack_score_high",
+      "value": "0.90"
+    },
+    {
+      "description": "Ops notification webhook (NOTIFY_WEBHOOK_URL); 'disabled' = no-op",
+      "id": "f6c74f87-ec6a-4caf-a9ee-c43b550daadb",
+      "name": "notify_webhook_url",
+      "value": "disabled"
+    }
+  ],
+  "actions": [
+    {
+      "app_name": "Shuffle Tools",
+      "app_version": "1.2.0",
+      "app_id": "428ebff1-81c4-4508-8154-6cf0f2e6ab15",
+      "name": "execute_python",
+      "label": "parse_alert",
+      "id": "c1d2e3f4-1111-4a2b-9e10-0d5f3a1c9e02",
+      "isStartNode": true,
+      "is_valid": true,
+      "environment": "onprem",
+      "position": {
+        "x": 340.001,
+        "y": 100.001
+      },
+      "errors": [],
+      "parameters": [
+        {
+          "name": "code",
+          "description": "The code to run. Can be a file ID from within Shuffle.",
+          "value": "import json, re\nsrcip = str(\"\"\"$exec.all_fields.data.srcip\"\"\").strip()\nrule_id = str(\"\"\"$exec.rule_id\"\"\").strip()\nrule_level = str(\"\"\"$exec.all_fields.rule.level\"\"\").strip()\nalert_id = str(\"\"\"$exec.all_fields.id\"\"\").strip()\n# Bare-IP-literal gate: parity with kamcmd_block.sh / autoban_loop.sh. Also the\n# SQL-injection guard for the enrichment queries below (srcip is attacker input).\nif not re.fullmatch(r\"[0-9A-Fa-f.:]{3,45}\", srcip):\n    srcip = \"\"\nif not rule_id.isdigit():\n    rule_id = \"0\"\nif not rule_level.isdigit():\n    rule_level = \"0\"\nalert_id = re.sub(r\"[^0-9A-Za-z._-]\", \"\", alert_id)[:64]\nprint(json.dumps({\n    \"srcip\": srcip,\n    \"rule_id\": rule_id,\n    \"rule_level\": rule_level,\n    \"alert_id\": alert_id,\n    \"valid\": \"true\" if srcip else \"false\",\n}))",
+          "example": "print(\"hello world\")",
+          "multiline": true,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": true,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        }
+      ]
+    },
+    {
+      "app_name": "http",
+      "app_version": "1.4.0",
+      "app_id": "ce8885bb-a924-4a3f-97a2-7f7447f9c396",
+      "name": "POST",
+      "label": "dedup_check",
+      "id": "c1d2e3f4-2222-4a2b-9e10-0d5f3a1c9e03",
+      "isStartNode": false,
+      "is_valid": true,
+      "environment": "onprem",
+      "position": {
+        "x": 620.001,
+        "y": 100.001
+      },
+      "errors": [],
+      "parameters": [
+        {
+          "name": "url",
+          "description": "The URL to post to",
+          "value": "$clickhouse_http_url/?database=ngn_sip",
+          "example": "https://example.com",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": true,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "body",
+          "description": "The body to use",
+          "value": "SELECT count() AS recent_cases FROM ngn_sip.soar_cases WHERE src_ip = '$parse_alert.message.srcip' AND case_time > now64(3) - INTERVAL $soar_dedup_window_seconds SECOND AND graded_action != 'dedup_suppressed' FORMAT JSONEachRow",
+          "example": "{\n\t'json': 'blob'\n}",
+          "multiline": true,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "headers",
+          "description": "Headers to use",
+          "value": "Content-Type: text/plain\nX-ClickHouse-User: $clickhouse_user\nX-ClickHouse-Key: $clickhouse_password",
+          "example": "Content-Type: application/json",
+          "multiline": true,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "username",
+          "description": "The username to use",
+          "value": "",
+          "example": "Username",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "password",
+          "description": "The password to use",
+          "value": "",
+          "example": "*****",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "verify",
+          "description": "Whether to check the certificate or not",
+          "value": "false",
+          "example": "false",
+          "multiline": false,
+          "options": [
+            "false",
+            "true"
+          ],
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "http_proxy",
+          "description": "Add a HTTP proxy",
+          "value": "",
+          "example": "http://192.168.0.1:8080",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "https_proxy",
+          "description": "Add a HTTPS proxy",
+          "value": "",
+          "example": "http://192.168.0.1:8080",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "timeout",
+          "description": "Add a timeout for the request, in seconds",
+          "value": "15",
+          "example": "10",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        }
+      ]
+    },
+    {
+      "app_name": "http",
+      "app_version": "1.4.0",
+      "app_id": "ce8885bb-a924-4a3f-97a2-7f7447f9c396",
+      "name": "POST",
+      "label": "enrich_ml",
+      "id": "c1d2e3f4-3333-4a2b-9e10-0d5f3a1c9e04",
+      "isStartNode": false,
+      "is_valid": true,
+      "environment": "onprem",
+      "position": {
+        "x": 900.001,
+        "y": 100.001
+      },
+      "errors": [],
+      "parameters": [
+        {
+          "name": "url",
+          "description": "The URL to post to",
+          "value": "$clickhouse_http_url/?database=ngn_sip",
+          "example": "https://example.com",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": true,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "body",
+          "description": "The body to use",
+          "value": "SELECT argMax(predicted_class, scored_at) AS predicted_class, argMax(proba, scored_at) AS proba, count() AS n FROM ngn_sip.ml_scores WHERE src_ip = '$parse_alert.message.srcip' AND scored_at > now64(3) - INTERVAL 1 HOUR FORMAT JSONEachRow",
+          "example": "{\n\t'json': 'blob'\n}",
+          "multiline": true,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "headers",
+          "description": "Headers to use",
+          "value": "Content-Type: text/plain\nX-ClickHouse-User: $clickhouse_user\nX-ClickHouse-Key: $clickhouse_password",
+          "example": "Content-Type: application/json",
+          "multiline": true,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "username",
+          "description": "The username to use",
+          "value": "",
+          "example": "Username",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "password",
+          "description": "The password to use",
+          "value": "",
+          "example": "*****",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "verify",
+          "description": "Whether to check the certificate or not",
+          "value": "false",
+          "example": "false",
+          "multiline": false,
+          "options": [
+            "false",
+            "true"
+          ],
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "http_proxy",
+          "description": "Add a HTTP proxy",
+          "value": "",
+          "example": "http://192.168.0.1:8080",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "https_proxy",
+          "description": "Add a HTTPS proxy",
+          "value": "",
+          "example": "http://192.168.0.1:8080",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "timeout",
+          "description": "Add a timeout for the request, in seconds",
+          "value": "15",
+          "example": "10",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        }
+      ]
+    },
+    {
+      "app_name": "http",
+      "app_version": "1.4.0",
+      "app_id": "ce8885bb-a924-4a3f-97a2-7f7447f9c396",
+      "name": "POST",
+      "label": "enrich_llm",
+      "id": "c1d2e3f4-4444-4a2b-9e10-0d5f3a1c9e05",
+      "isStartNode": false,
+      "is_valid": true,
+      "environment": "onprem",
+      "position": {
+        "x": 1180.001,
+        "y": 100.001
+      },
+      "errors": [],
+      "parameters": [
+        {
+          "name": "url",
+          "description": "The URL to post to",
+          "value": "$clickhouse_http_url/?database=ngn_sip",
+          "example": "https://example.com",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": true,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "body",
+          "description": "The body to use",
+          "value": "SELECT argMax(verdict, verdict_time) AS verdict, argMax(confidence, verdict_time) AS confidence, count() AS n FROM ngn_sip.llm_verdicts WHERE replaceOne(toString(src_ip), '::ffff:', '') = '$parse_alert.message.srcip' AND verdict_time > now64(3) - INTERVAL 1 HOUR FORMAT JSONEachRow",
+          "example": "{\n\t'json': 'blob'\n}",
+          "multiline": true,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "headers",
+          "description": "Headers to use",
+          "value": "Content-Type: text/plain\nX-ClickHouse-User: $clickhouse_user\nX-ClickHouse-Key: $clickhouse_password",
+          "example": "Content-Type: application/json",
+          "multiline": true,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "username",
+          "description": "The username to use",
+          "value": "",
+          "example": "Username",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "password",
+          "description": "The password to use",
+          "value": "",
+          "example": "*****",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "verify",
+          "description": "Whether to check the certificate or not",
+          "value": "false",
+          "example": "false",
+          "multiline": false,
+          "options": [
+            "false",
+            "true"
+          ],
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "http_proxy",
+          "description": "Add a HTTP proxy",
+          "value": "",
+          "example": "http://192.168.0.1:8080",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "https_proxy",
+          "description": "Add a HTTPS proxy",
+          "value": "",
+          "example": "http://192.168.0.1:8080",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "timeout",
+          "description": "Add a timeout for the request, in seconds",
+          "value": "15",
+          "example": "10",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        }
+      ]
+    },
+    {
+      "app_name": "http",
+      "app_version": "1.4.0",
+      "app_id": "ce8885bb-a924-4a3f-97a2-7f7447f9c396",
+      "name": "POST",
+      "label": "enrich_suricata",
+      "id": "c1d2e3f4-5555-4a2b-9e10-0d5f3a1c9e06",
+      "isStartNode": false,
+      "is_valid": true,
+      "environment": "onprem",
+      "position": {
+        "x": 1460.001,
+        "y": 100.001
+      },
+      "errors": [],
+      "parameters": [
+        {
+          "name": "url",
+          "description": "The URL to post to",
+          "value": "$clickhouse_http_url/?database=ngn_sip",
+          "example": "https://example.com",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": true,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "body",
+          "description": "The body to use",
+          "value": "SELECT count() AS alert_count, topK(1)(signature)[1] AS top_signature FROM ngn_sip.suricata_alerts WHERE src_ip = '$parse_alert.message.srcip' AND event_time > now64(3) - INTERVAL 15 MINUTE FORMAT JSONEachRow",
+          "example": "{\n\t'json': 'blob'\n}",
+          "multiline": true,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "headers",
+          "description": "Headers to use",
+          "value": "Content-Type: text/plain\nX-ClickHouse-User: $clickhouse_user\nX-ClickHouse-Key: $clickhouse_password",
+          "example": "Content-Type: application/json",
+          "multiline": true,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "username",
+          "description": "The username to use",
+          "value": "",
+          "example": "Username",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "password",
+          "description": "The password to use",
+          "value": "",
+          "example": "*****",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "verify",
+          "description": "Whether to check the certificate or not",
+          "value": "false",
+          "example": "false",
+          "multiline": false,
+          "options": [
+            "false",
+            "true"
+          ],
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "http_proxy",
+          "description": "Add a HTTP proxy",
+          "value": "",
+          "example": "http://192.168.0.1:8080",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "https_proxy",
+          "description": "Add a HTTPS proxy",
+          "value": "",
+          "example": "http://192.168.0.1:8080",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "timeout",
+          "description": "Add a timeout for the request, in seconds",
+          "value": "15",
+          "example": "10",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        }
+      ]
+    },
+    {
+      "app_name": "Shuffle Tools",
+      "app_version": "1.2.0",
+      "app_id": "428ebff1-81c4-4508-8154-6cf0f2e6ab15",
+      "name": "execute_python",
+      "label": "decide",
+      "id": "c1d2e3f4-6666-4a2b-9e10-0d5f3a1c9e07",
+      "isStartNode": false,
+      "is_valid": true,
+      "environment": "onprem",
+      "position": {
+        "x": 1740.001,
+        "y": 100.001
+      },
+      "errors": [],
+      "parameters": [
+        {
+          "name": "code",
+          "description": "The code to run. Can be a file ID from within Shuffle.",
+          "value": "import json, uuid\n\ndef _s(v, d=\"\"):\n    v = str(v).strip()\n    return d if v == \"\" or v.startswith(\"$\") or v == \"None\" else v\n\ndef _f(v, d=0.0):\n    try:\n        return float(str(v).strip())\n    except Exception:\n        return d\n\ndef _i(v, d=0):\n    try:\n        return int(float(str(v).strip()))\n    except Exception:\n        return d\n\nsrcip = _s(\"\"\"$parse_alert.message.srcip\"\"\")\nrule_id = _i(\"\"\"$parse_alert.message.rule_id\"\"\")\nrule_level = _i(\"\"\"$parse_alert.message.rule_level\"\"\")\nalert_id = _s(\"\"\"$parse_alert.message.alert_id\"\"\")\nrecent_cases = _i(\"\"\"$dedup_check.body.recent_cases\"\"\")\nml_class = _s(\"\"\"$enrich_ml.body.predicted_class\"\"\")\nml_proba = _f(\"\"\"$enrich_ml.body.proba\"\"\")\nml_rows = _i(\"\"\"$enrich_ml.body.n\"\"\")\nllm_verdict = _s(\"\"\"$enrich_llm.body.verdict\"\"\")\nllm_conf = _f(\"\"\"$enrich_llm.body.confidence\"\"\")\nllm_rows = _i(\"\"\"$enrich_llm.body.n\"\"\")\nsuri_count = _i(\"\"\"$enrich_suricata.body.alert_count\"\"\")\ntop_sig = _s(\"\"\"$enrich_suricata.body.top_signature\"\"\")\nban_thr = _f(\"\"\"$attack_score_ban_threshold\"\"\", 0.85)\nlow_thr = _f(\"\"\"$attack_score_low_threshold\"\"\", 0.55)\nml_high = _f(\"\"\"$ml_attack_score_high\"\"\", 0.90)\nnotify_url = _s(\"\"\"$notify_webhook_url\"\"\")\nnotify_configured = notify_url not in (\"\", \"disabled\")\n\n# Graded-response policy (docs/09_soar_runbook.md). Stage 1/2 outputs INFORM\n# the decision; the deterministic autoban backstop is unaffected.\nllm_corroborates = (llm_verdict == \"malicious\" and llm_conf >= 0.6) or (\n    llm_verdict == \"suspicious\" and llm_conf >= 0.8)\nml_corroborates = (ml_proba >= ml_high and ml_class not in (\"\", \"normal\", \"benign\")) or (\n    ml_proba >= ban_thr)\n\nif recent_cases > 0:\n    action = \"dedup_suppressed\"\n    reason = \"recent non-suppressed case for this src_ip within dedup window\"\nelif rule_level >= 10 and (llm_corroborates or ml_corroborates or rule_level >= 12):\n    action = \"ban\"\n    why = []\n    if llm_corroborates:\n        why.append(\"stage2 \" + llm_verdict + \" conf \" + str(llm_conf))\n    if ml_corroborates:\n        why.append(\"ml \" + (ml_class or \"n/a\") + \" proba \" + str(ml_proba))\n    if rule_level >= 12:\n        why.append(\"wazuh level \" + str(rule_level) + \" >= 12\")\n    reason = \"corroborated: \" + \"; \".join(why)\nelif llm_verdict in (\"suspicious\", \"needs_review\") or (low_thr <= ml_proba < ban_thr):\n    action = \"rate_limit_notify\"\n    reason = \"mid-confidence: stage2 \" + (llm_verdict or \"n/a\") + \" / ml proba \" + str(ml_proba) + \"; rely on PIKE edge rate limit\"\nelse:\n    action = \"log_only\"\n    reason = \"below low threshold \" + str(low_thr) + \" and no stage2 corroboration; FP candidate\"\n\nshould_ban = action == \"ban\"\nnotify_planned = 1 if (notify_configured and action in (\"ban\", \"rate_limit_notify\")) else 0\n\ncase_row = {\n    \"case_id\": str(uuid.uuid4()),\n    \"src_ip\": srcip,\n    \"wazuh_rule_id\": rule_id,\n    \"wazuh_rule_level\": rule_level,\n    \"graded_action\": action,\n    \"stage2_verdict\": llm_verdict,\n    \"stage2_confidence\": llm_conf,\n    \"ml_attack_score\": ml_proba,\n    \"ml_predicted_label\": ml_class,\n    \"suricata_alert_count\": suri_count,\n    \"dedup_key\": srcip,\n    \"workflow_id\": \"sip_response_orchestration\",\n    \"execution_id\": \"\",\n    \"notify_sent\": notify_planned,\n    \"evidence_json\": json.dumps({\n        \"wazuh_alert_id\": alert_id,\n        \"decision_reason\": reason,\n        \"ml_rows\": ml_rows,\n        \"llm_rows\": llm_rows,\n        \"suricata_top_signature\": top_sig,\n        \"thresholds\": {\"ban\": ban_thr, \"low\": low_thr, \"ml_high\": ml_high},\n    }),\n}\nprint(json.dumps({\n    \"graded_action\": action,\n    \"should_ban\": \"true\" if should_ban else \"false\",\n    \"notify\": \"true\" if notify_planned else \"false\",\n    \"reason\": reason,\n    \"case_row\": case_row,\n}))",
+          "example": "print(\"hello world\")",
+          "multiline": true,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": true,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        }
+      ]
+    },
+    {
+      "app_name": "http",
+      "app_version": "1.4.0",
+      "app_id": "ce8885bb-a924-4a3f-97a2-7f7447f9c396",
+      "name": "POST",
+      "label": "ban_via_relay",
+      "id": "d2e3f4a5-7777-4a2b-9e10-0d5f3a1c9e08",
+      "isStartNode": false,
+      "is_valid": true,
+      "environment": "onprem",
+      "position": {
+        "x": 2020.001,
+        "y": 20.001
+      },
+      "errors": [],
+      "parameters": [
+        {
+          "name": "url",
+          "description": "The URL to post to",
+          "value": "$kamcmd_relay_url",
+          "example": "https://example.com",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": true,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "body",
+          "description": "The body to use",
+          "value": "{\"command\": \"add\", \"src_ip\": \"$parse_alert.message.srcip\", \"rule_id\": \"$parse_alert.message.rule_id\", \"rule_level\": \"$parse_alert.message.rule_level\", \"reason\": \"SOAR graded ban: $decide.message.reason\"}",
+          "example": "{\n\t'json': 'blob'\n}",
+          "multiline": true,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "headers",
+          "description": "Headers to use",
+          "value": "Content-Type: application/json\nAuthorization: Bearer $kamcmd_relay_token",
+          "example": "Content-Type: application/json",
+          "multiline": true,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "username",
+          "description": "The username to use",
+          "value": "",
+          "example": "Username",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "password",
+          "description": "The password to use",
+          "value": "",
+          "example": "*****",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "verify",
+          "description": "Whether to check the certificate or not",
+          "value": "false",
+          "example": "false",
+          "multiline": false,
+          "options": [
+            "false",
+            "true"
+          ],
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "http_proxy",
+          "description": "Add a HTTP proxy",
+          "value": "",
+          "example": "http://192.168.0.1:8080",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "https_proxy",
+          "description": "Add a HTTPS proxy",
+          "value": "",
+          "example": "http://192.168.0.1:8080",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "timeout",
+          "description": "Add a timeout for the request, in seconds",
+          "value": "15",
+          "example": "10",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        }
+      ]
+    },
+    {
+      "app_name": "http",
+      "app_version": "1.4.0",
+      "app_id": "ce8885bb-a924-4a3f-97a2-7f7447f9c396",
+      "name": "POST",
+      "label": "record_case_ban",
+      "id": "d2e3f4a5-8888-4a2b-9e10-0d5f3a1c9e09",
+      "isStartNode": false,
+      "is_valid": true,
+      "environment": "onprem",
+      "position": {
+        "x": 2300.001,
+        "y": 20.001
+      },
+      "errors": [],
+      "parameters": [
+        {
+          "name": "url",
+          "description": "The URL to post to",
+          "value": "$clickhouse_http_url/?database=ngn_sip",
+          "example": "https://example.com",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": true,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "body",
+          "description": "The body to use",
+          "value": "INSERT INTO ngn_sip.soar_cases (case_id, src_ip, wazuh_rule_id, wazuh_rule_level, graded_action, stage2_verdict, stage2_confidence, ml_attack_score, ml_predicted_label, suricata_alert_count, dedup_key, workflow_id, execution_id, notify_sent, evidence_json) FORMAT JSONEachRow\n$decide.message.case_row",
+          "example": "{\n\t'json': 'blob'\n}",
+          "multiline": true,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "headers",
+          "description": "Headers to use",
+          "value": "Content-Type: text/plain\nX-ClickHouse-User: $clickhouse_user\nX-ClickHouse-Key: $clickhouse_password",
+          "example": "Content-Type: application/json",
+          "multiline": true,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "username",
+          "description": "The username to use",
+          "value": "",
+          "example": "Username",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "password",
+          "description": "The password to use",
+          "value": "",
+          "example": "*****",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "verify",
+          "description": "Whether to check the certificate or not",
+          "value": "false",
+          "example": "false",
+          "multiline": false,
+          "options": [
+            "false",
+            "true"
+          ],
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "http_proxy",
+          "description": "Add a HTTP proxy",
+          "value": "",
+          "example": "http://192.168.0.1:8080",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "https_proxy",
+          "description": "Add a HTTPS proxy",
+          "value": "",
+          "example": "http://192.168.0.1:8080",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "timeout",
+          "description": "Add a timeout for the request, in seconds",
+          "value": "15",
+          "example": "10",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        }
+      ]
+    },
+    {
+      "app_name": "http",
+      "app_version": "1.4.0",
+      "app_id": "ce8885bb-a924-4a3f-97a2-7f7447f9c396",
+      "name": "POST",
+      "label": "record_case_noban",
+      "id": "d2e3f4a5-9999-4a2b-9e10-0d5f3a1c9e0a",
+      "isStartNode": false,
+      "is_valid": true,
+      "environment": "onprem",
+      "position": {
+        "x": 2020.001,
+        "y": 180.001
+      },
+      "errors": [],
+      "parameters": [
+        {
+          "name": "url",
+          "description": "The URL to post to",
+          "value": "$clickhouse_http_url/?database=ngn_sip",
+          "example": "https://example.com",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": true,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "body",
+          "description": "The body to use",
+          "value": "INSERT INTO ngn_sip.soar_cases (case_id, src_ip, wazuh_rule_id, wazuh_rule_level, graded_action, stage2_verdict, stage2_confidence, ml_attack_score, ml_predicted_label, suricata_alert_count, dedup_key, workflow_id, execution_id, notify_sent, evidence_json) FORMAT JSONEachRow\n$decide.message.case_row",
+          "example": "{\n\t'json': 'blob'\n}",
+          "multiline": true,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "headers",
+          "description": "Headers to use",
+          "value": "Content-Type: text/plain\nX-ClickHouse-User: $clickhouse_user\nX-ClickHouse-Key: $clickhouse_password",
+          "example": "Content-Type: application/json",
+          "multiline": true,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "username",
+          "description": "The username to use",
+          "value": "",
+          "example": "Username",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "password",
+          "description": "The password to use",
+          "value": "",
+          "example": "*****",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "verify",
+          "description": "Whether to check the certificate or not",
+          "value": "false",
+          "example": "false",
+          "multiline": false,
+          "options": [
+            "false",
+            "true"
+          ],
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "http_proxy",
+          "description": "Add a HTTP proxy",
+          "value": "",
+          "example": "http://192.168.0.1:8080",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "https_proxy",
+          "description": "Add a HTTPS proxy",
+          "value": "",
+          "example": "http://192.168.0.1:8080",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "timeout",
+          "description": "Add a timeout for the request, in seconds",
+          "value": "15",
+          "example": "10",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        }
+      ]
+    },
+    {
+      "app_name": "http",
+      "app_version": "1.4.0",
+      "app_id": "ce8885bb-a924-4a3f-97a2-7f7447f9c396",
+      "name": "POST",
+      "label": "notify_ops",
+      "id": "d2e3f4a5-aaaa-4a2b-9e10-0d5f3a1c9e0b",
+      "isStartNode": false,
+      "is_valid": true,
+      "environment": "onprem",
+      "position": {
+        "x": 2020.001,
+        "y": 340.001
+      },
+      "errors": [],
+      "parameters": [
+        {
+          "name": "url",
+          "description": "The URL to post to",
+          "value": "$notify_webhook_url",
+          "example": "https://example.com",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": true,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "body",
+          "description": "The body to use",
+          "value": "{\"text\": \"SOAR graded response: $decide.message.graded_action for $parse_alert.message.srcip (Wazuh rule $parse_alert.message.rule_id level $parse_alert.message.rule_level). Reason: $decide.message.reason\"}",
+          "example": "{\n\t'json': 'blob'\n}",
+          "multiline": true,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "headers",
+          "description": "Headers to use",
+          "value": "Content-Type: application/json",
+          "example": "Content-Type: application/json",
+          "multiline": true,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "username",
+          "description": "The username to use",
+          "value": "",
+          "example": "Username",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "password",
+          "description": "The password to use",
+          "value": "",
+          "example": "*****",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": ""
+        },
+        {
+          "name": "verify",
+          "description": "Whether to check the certificate or not",
+          "value": "false",
+          "example": "false",
+          "multiline": false,
+          "options": [
+            "false",
+            "true"
+          ],
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "http_proxy",
+          "description": "Add a HTTP proxy",
+          "value": "",
+          "example": "http://192.168.0.1:8080",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "https_proxy",
+          "description": "Add a HTTPS proxy",
+          "value": "",
+          "example": "http://192.168.0.1:8080",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        },
+        {
+          "name": "timeout",
+          "description": "Add a timeout for the request, in seconds",
+          "value": "15",
+          "example": "10",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "",
+          "required": false,
+          "configuration": false,
+          "schema": {
+            "type": "bool"
+          },
+          "id": ""
+        }
+      ]
+    }
+  ],
+  "triggers": [
+    {
+      "app_name": "Webhook",
+      "app_version": "1.0.0",
+      "name": "Webhook",
+      "label": "wazuh_sip_alert",
+      "id": "b6a1c874-5a10-4a2b-9e10-0d5f3a1c9e01",
+      "trigger_type": "WEBHOOK",
+      "environment": "onprem",
+      "is_valid": true,
+      "description": "Wazuh shuffle integration posts high-severity SIP alerts here",
+      "position": {
+        "x": 60,
+        "y": 100
+      },
+      "status": "uninitialized",
+      "errors": [],
+      "isStartNode": false,
+      "parameters": [
+        {
+          "name": "url",
+          "description": "",
+          "value": "http://shuffle-backend:5001/api/v1/hooks/webhook_b6a1c874-5a10-4a2b-9e10-0d5f3a1c9e01",
+          "example": "",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "STATIC_VALUE",
+          "required": true,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": "e8b7c435-21ac-4ed2-b036-90529047afbd"
+        },
+        {
+          "name": "tmp",
+          "description": "",
+          "value": "webhook_b6a1c874-5a10-4a2b-9e10-0d5f3a1c9e01",
+          "example": "",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "STATIC_VALUE",
+          "required": true,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": "9cc0ef55-b0b0-4581-9998-d6a5c5f6f43f"
+        },
+        {
+          "name": "auth_headers",
+          "description": "",
+          "value": "",
+          "example": "",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "STATIC_VALUE",
+          "required": true,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": "0a034ba9-3cb5-4620-a110-1a5ec1a5217f"
+        },
+        {
+          "name": "custom_response_body",
+          "description": "",
+          "value": "",
+          "example": "",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "STATIC_VALUE",
+          "required": true,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": "db1553a6-d383-46b9-be65-27271997da09"
+        },
+        {
+          "name": "await_response",
+          "description": "",
+          "value": "v1",
+          "example": "",
+          "multiline": false,
+          "options": null,
+          "action_field": "",
+          "variant": "STATIC_VALUE",
+          "required": true,
+          "configuration": false,
+          "schema": {
+            "type": "string"
+          },
+          "id": "68eeac65-5a5d-40de-88a3-90859cc03961"
+        }
+      ]
+    }
+  ],
+  "branches": [
+    {
+      "id": "27f679a9-a80e-4068-b1f3-9a29afe2076f",
+      "source_id": "b6a1c874-5a10-4a2b-9e10-0d5f3a1c9e01",
+      "destination_id": "c1d2e3f4-1111-4a2b-9e10-0d5f3a1c9e02",
+      "label": "",
+      "conditions": null,
+      "decorator": false,
+      "has_errors": false
+    },
+    {
+      "id": "4a86ec86-80fe-480b-84f4-97e112089e16",
+      "source_id": "c1d2e3f4-1111-4a2b-9e10-0d5f3a1c9e02",
+      "destination_id": "c1d2e3f4-2222-4a2b-9e10-0d5f3a1c9e03",
+      "label": "valid_ip",
+      "conditions": [
+        {
+          "source": {
+            "description": "",
+            "id": "a0ec30d3-4aac-49b6-92d0-dfb8628b61ec",
+            "name": "source",
+            "example": "",
+            "value": "$parse_alert.message.valid",
+            "multiline": false,
+            "multiselect": false,
+            "options": null,
+            "action_field": "",
+            "variant": "STATIC_VALUE",
+            "required": true,
+            "configuration": false,
+            "tags": null,
+            "schema": {
+              "type": "string"
+            },
+            "skip_multicheck": false,
+            "value_replace": null,
+            "unique_toggled": false,
+            "error": "",
+            "hidden": false
+          },
+          "condition": {
+            "description": "",
+            "id": "1a1685dc-4019-4476-a263-5ea7c93d777a",
+            "name": "condition",
+            "example": "",
+            "value": "equals",
+            "multiline": false,
+            "multiselect": false,
+            "options": null,
+            "action_field": "",
+            "variant": "STATIC_VALUE",
+            "required": true,
+            "configuration": false,
+            "tags": null,
+            "schema": {
+              "type": "string"
+            },
+            "skip_multicheck": false,
+            "value_replace": null,
+            "unique_toggled": false,
+            "error": "",
+            "hidden": false
+          },
+          "destination": {
+            "description": "",
+            "id": "ac6c7c55-63bd-4e4e-a7cd-dbcb76aadda4",
+            "name": "destination",
+            "example": "",
+            "value": "true",
+            "multiline": false,
+            "multiselect": false,
+            "options": null,
+            "action_field": "",
+            "variant": "STATIC_VALUE",
+            "required": true,
+            "configuration": false,
+            "tags": null,
+            "schema": {
+              "type": "string"
+            },
+            "skip_multicheck": false,
+            "value_replace": null,
+            "unique_toggled": false,
+            "error": "",
+            "hidden": false
+          }
+        }
+      ],
+      "decorator": false,
+      "has_errors": false
+    },
+    {
+      "id": "a4fbcb34-06f8-4755-a8e2-61a06d8cd37d",
+      "source_id": "c1d2e3f4-2222-4a2b-9e10-0d5f3a1c9e03",
+      "destination_id": "c1d2e3f4-3333-4a2b-9e10-0d5f3a1c9e04",
+      "label": "",
+      "conditions": null,
+      "decorator": false,
+      "has_errors": false
+    },
+    {
+      "id": "fc328885-73bf-4ed0-af24-fa6c85b36e48",
+      "source_id": "c1d2e3f4-3333-4a2b-9e10-0d5f3a1c9e04",
+      "destination_id": "c1d2e3f4-4444-4a2b-9e10-0d5f3a1c9e05",
+      "label": "",
+      "conditions": null,
+      "decorator": false,
+      "has_errors": false
+    },
+    {
+      "id": "4e398712-b6df-4d7a-b784-532ee235248b",
+      "source_id": "c1d2e3f4-4444-4a2b-9e10-0d5f3a1c9e05",
+      "destination_id": "c1d2e3f4-5555-4a2b-9e10-0d5f3a1c9e06",
+      "label": "",
+      "conditions": null,
+      "decorator": false,
+      "has_errors": false
+    },
+    {
+      "id": "324bce8e-d941-46e5-b4fa-de9973f94032",
+      "source_id": "c1d2e3f4-5555-4a2b-9e10-0d5f3a1c9e06",
+      "destination_id": "c1d2e3f4-6666-4a2b-9e10-0d5f3a1c9e07",
+      "label": "",
+      "conditions": null,
+      "decorator": false,
+      "has_errors": false
+    },
+    {
+      "id": "c45a4064-6653-42e0-a774-926bdf2548e4",
+      "source_id": "c1d2e3f4-6666-4a2b-9e10-0d5f3a1c9e07",
+      "destination_id": "d2e3f4a5-7777-4a2b-9e10-0d5f3a1c9e08",
+      "label": "graded_ban",
+      "conditions": [
+        {
+          "source": {
+            "description": "",
+            "id": "969a9cf7-5e03-4829-b45e-735d99690f73",
+            "name": "source",
+            "example": "",
+            "value": "$decide.message.should_ban",
+            "multiline": false,
+            "multiselect": false,
+            "options": null,
+            "action_field": "",
+            "variant": "STATIC_VALUE",
+            "required": true,
+            "configuration": false,
+            "tags": null,
+            "schema": {
+              "type": "string"
+            },
+            "skip_multicheck": false,
+            "value_replace": null,
+            "unique_toggled": false,
+            "error": "",
+            "hidden": false
+          },
+          "condition": {
+            "description": "",
+            "id": "f6a5a27f-9b5b-4d76-8fcd-77eeaecb90cf",
+            "name": "condition",
+            "example": "",
+            "value": "equals",
+            "multiline": false,
+            "multiselect": false,
+            "options": null,
+            "action_field": "",
+            "variant": "STATIC_VALUE",
+            "required": true,
+            "configuration": false,
+            "tags": null,
+            "schema": {
+              "type": "string"
+            },
+            "skip_multicheck": false,
+            "value_replace": null,
+            "unique_toggled": false,
+            "error": "",
+            "hidden": false
+          },
+          "destination": {
+            "description": "",
+            "id": "bf2d8e03-5c2f-405e-abd9-f94ea18b7f43",
+            "name": "destination",
+            "example": "",
+            "value": "true",
+            "multiline": false,
+            "multiselect": false,
+            "options": null,
+            "action_field": "",
+            "variant": "STATIC_VALUE",
+            "required": true,
+            "configuration": false,
+            "tags": null,
+            "schema": {
+              "type": "string"
+            },
+            "skip_multicheck": false,
+            "value_replace": null,
+            "unique_toggled": false,
+            "error": "",
+            "hidden": false
+          }
+        }
+      ],
+      "decorator": false,
+      "has_errors": false
+    },
+    {
+      "id": "6e816277-11a3-4855-8432-1dbd9a85ed7c",
+      "source_id": "d2e3f4a5-7777-4a2b-9e10-0d5f3a1c9e08",
+      "destination_id": "d2e3f4a5-8888-4a2b-9e10-0d5f3a1c9e09",
+      "label": "",
+      "conditions": null,
+      "decorator": false,
+      "has_errors": false
+    },
+    {
+      "id": "bfc6d6ec-0484-4e79-978a-1e93cd92613c",
+      "source_id": "c1d2e3f4-6666-4a2b-9e10-0d5f3a1c9e07",
+      "destination_id": "d2e3f4a5-9999-4a2b-9e10-0d5f3a1c9e0a",
+      "label": "no_ban",
+      "conditions": [
+        {
+          "source": {
+            "description": "",
+            "id": "ece338b3-f4cd-4120-ad47-eb85f770d65e",
+            "name": "source",
+            "example": "",
+            "value": "$decide.message.should_ban",
+            "multiline": false,
+            "multiselect": false,
+            "options": null,
+            "action_field": "",
+            "variant": "STATIC_VALUE",
+            "required": true,
+            "configuration": false,
+            "tags": null,
+            "schema": {
+              "type": "string"
+            },
+            "skip_multicheck": false,
+            "value_replace": null,
+            "unique_toggled": false,
+            "error": "",
+            "hidden": false
+          },
+          "condition": {
+            "description": "",
+            "id": "c28e01dc-5a18-4a48-ba66-2f7c2a08f305",
+            "name": "condition",
+            "example": "",
+            "value": "equals",
+            "multiline": false,
+            "multiselect": false,
+            "options": null,
+            "action_field": "",
+            "variant": "STATIC_VALUE",
+            "required": true,
+            "configuration": false,
+            "tags": null,
+            "schema": {
+              "type": "string"
+            },
+            "skip_multicheck": false,
+            "value_replace": null,
+            "unique_toggled": false,
+            "error": "",
+            "hidden": false
+          },
+          "destination": {
+            "description": "",
+            "id": "ea593e49-9411-4971-8b7a-d61dde6eeac7",
+            "name": "destination",
+            "example": "",
+            "value": "false",
+            "multiline": false,
+            "multiselect": false,
+            "options": null,
+            "action_field": "",
+            "variant": "STATIC_VALUE",
+            "required": true,
+            "configuration": false,
+            "tags": null,
+            "schema": {
+              "type": "string"
+            },
+            "skip_multicheck": false,
+            "value_replace": null,
+            "unique_toggled": false,
+            "error": "",
+            "hidden": false
+          }
+        }
+      ],
+      "decorator": false,
+      "has_errors": false
+    },
+    {
+      "id": "55a767b3-4184-4246-8c48-9213e88ad942",
+      "source_id": "c1d2e3f4-6666-4a2b-9e10-0d5f3a1c9e07",
+      "destination_id": "d2e3f4a5-aaaa-4a2b-9e10-0d5f3a1c9e0b",
+      "label": "notify_configured",
+      "conditions": [
+        {
+          "source": {
+            "description": "",
+            "id": "bc18b3da-525d-46bc-a167-740b2cb220a1",
+            "name": "source",
+            "example": "",
+            "value": "$decide.message.notify",
+            "multiline": false,
+            "multiselect": false,
+            "options": null,
+            "action_field": "",
+            "variant": "STATIC_VALUE",
+            "required": true,
+            "configuration": false,
+            "tags": null,
+            "schema": {
+              "type": "string"
+            },
+            "skip_multicheck": false,
+            "value_replace": null,
+            "unique_toggled": false,
+            "error": "",
+            "hidden": false
+          },
+          "condition": {
+            "description": "",
+            "id": "556315e9-2ab5-414c-8f7a-5c8448eda33c",
+            "name": "condition",
+            "example": "",
+            "value": "equals",
+            "multiline": false,
+            "multiselect": false,
+            "options": null,
+            "action_field": "",
+            "variant": "STATIC_VALUE",
+            "required": true,
+            "configuration": false,
+            "tags": null,
+            "schema": {
+              "type": "string"
+            },
+            "skip_multicheck": false,
+            "value_replace": null,
+            "unique_toggled": false,
+            "error": "",
+            "hidden": false
+          },
+          "destination": {
+            "description": "",
+            "id": "aa60b085-97e1-4b9a-ad21-40aeec641f9b",
+            "name": "destination",
+            "example": "",
+            "value": "true",
+            "multiline": false,
+            "multiselect": false,
+            "options": null,
+            "action_field": "",
+            "variant": "STATIC_VALUE",
+            "required": true,
+            "configuration": false,
+            "tags": null,
+            "schema": {
+              "type": "string"
+            },
+            "skip_multicheck": false,
+            "value_replace": null,
+            "unique_toggled": false,
+            "error": "",
+            "hidden": false
+          }
+        }
+      ],
+      "decorator": false,
+      "has_errors": false
+    }
+  ]
+}

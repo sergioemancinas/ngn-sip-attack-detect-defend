@@ -9,7 +9,10 @@
 
 ## Demo
 
-https://github.com/user-attachments/assets/0cd42878-92c6-4c36-a18d-33a1250b696d
+
+
+https://github.com/user-attachments/assets/f62fe960-1003-4489-b81f-ba241d3acd41
+
 
 A 3-minute walkthrough: live ingress traffic through Suricata and Wazuh detection, ML triage, automated response, and observability.
 

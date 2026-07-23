@@ -4,9 +4,8 @@
 ![SIP/VoIP security testbed](https://img.shields.io/badge/domain-SIP%2FVoIP%20security-blue)
 ![Loopback-only lab](https://img.shields.io/badge/deployment-loopback--only%20lab-orange)
 
-<!-- Activated at publish time (these need a public repo + a workflow run to render):
-[![CI](https://github.com/sergioemancinas/sip-attack-detect-defend/actions/workflows/ci.yml/badge.svg)](https://github.com/sergioemancinas/sip-attack-detect-defend/actions/workflows/ci.yml)
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/sergioemancinas/sip-attack-detect-defend/badge)](https://securityscorecards.dev/viewer/?uri=github.com/sergioemancinas/sip-attack-detect-defend) -->
+[![CI](https://github.com/sergioemancinas/ngn-sip-attack-detect-defend/actions/workflows/ci.yml/badge.svg)](https://github.com/sergioemancinas/ngn-sip-attack-detect-defend/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/sergioemancinas/ngn-sip-attack-detect-defend/badge)](https://securityscorecards.dev/viewer/?uri=github.com/sergioemancinas/ngn-sip-attack-detect-defend)
 
 ## Demo
 
@@ -21,7 +20,7 @@ A reproducible SIP attack-detect-defend testbed and a candid evaluation study. I
 Detections drive an audited automated response through Kamailio active response and a graded Shuffle SOAR workflow. An advisory LLM triage stage is included and reported as latency-bound. All evidence lands in ClickHouse and is visible in Grafana and a Next.js dashboard. This repository is the artifact for the accompanying IEEE paper.
 
 > [!WARNING]
-> This is a **research lab, not a production platform**. It is a project for the Next Generation Networks (NGN) course, MSc programme at TH Köln, and is lab-secure (loopback-bound, placeholder credentials) by design. Before exposing any of it beyond loopback, follow [`docs/INTERNET_EXPOSURE.md`](docs/INTERNET_EXPOSURE.md).
+> This is a **research lab, not a production platform**. It is lab-secure (loopback-bound, placeholder credentials) by design. Before exposing any of it beyond loopback, follow [`docs/INTERNET_EXPOSURE.md`](docs/INTERNET_EXPOSURE.md).
 
 ## Contents
 
@@ -40,7 +39,6 @@ Detections drive an audited automated response through Kamailio active response 
 - [Documentation](#documentation)
 - [Ethics](#ethics)
 - [License](#license)
-- [Project origin](#project-origin)
 
 ## Security posture
 
@@ -309,10 +307,3 @@ This project is restricted to authorized lab infrastructure, synthetic identitie
 ## License
 
 MIT License (see [LICENSE](LICENSE)).
-
-## Project origin
-
-I built this project for the Next Generation Networks course at TH Köln. It was
-developed on the university GitLab instance and migrated to this GitHub account
-for public release; the issue history and labels are carried over from that
-project.

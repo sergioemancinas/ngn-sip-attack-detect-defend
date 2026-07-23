@@ -24,7 +24,6 @@ repo="${repo_full##*/}"
 checks='[
   "CI / lint-and-smoke",
   "ShellCheck / shellcheck",
-  "Aikido Security Gate / Aikido SAST / SCA / Secrets / IaC",
   "Container Vulnerability Gate / Trivy fixable C/H gate"
 ]'
 

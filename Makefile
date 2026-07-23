@@ -1,4 +1,4 @@
-.PHONY: up down logs smoke smoke-clean e2e clean ps build check-local-exposure scan-containers scan-containers-fixable scan-containers-trivy scan-containers-external scan-containers-external-fixable scan-containers-external-trivy aikido-scan obs-up obs-down obs-logs obs-ps obs-smoke ids-up ids-down ids-logs ids-ps wazuh-up wazuh-down wazuh-logs wazuh-ps wazuh-integrate wazuh-integrate-dryrun wazuh-integrate-remove wazuh-sso-apply keycloak-up keycloak-down keycloak-logs keycloak-ps homer-up homer-down homer-logs homer-ps soar-up soar-down soar-logs soar-ps shuffle-provision shuffle-provision-dryrun shuffle-provision-sso ml-up ml-down ml-pull ml-export dashboard-up dashboard-down dashboard-logs dashboard-ps all-up all-down up-all down-all bootstrap docker-mem
+.PHONY: up down logs smoke smoke-clean e2e clean ps build check-local-exposure scan-containers scan-containers-fixable scan-containers-trivy scan-containers-external scan-containers-external-fixable scan-containers-external-trivy obs-up obs-down obs-logs obs-ps obs-smoke ids-up ids-down ids-logs ids-ps wazuh-up wazuh-down wazuh-logs wazuh-ps wazuh-integrate wazuh-integrate-dryrun wazuh-integrate-remove wazuh-sso-apply keycloak-up keycloak-down keycloak-logs keycloak-ps homer-up homer-down homer-logs homer-ps soar-up soar-down soar-logs soar-ps shuffle-provision shuffle-provision-dryrun shuffle-provision-sso ml-up ml-down ml-pull ml-export dashboard-up dashboard-down dashboard-logs dashboard-ps all-up all-down up-all down-all bootstrap docker-mem
 
 COMPOSE ?= docker compose
 SCAN_IMAGES ?= \
@@ -114,28 +114,6 @@ scan-containers-external-trivy:
 		echo "==> Trivy fixable critical/high scan: $$image"; \
 		trivy image --severity CRITICAL,HIGH --ignore-unfixed --exit-code 0 --no-progress "$$image" || true; \
 	done
-
-AIKIDO_ENV_FILE ?= .env.aikido
-
-aikido-scan:
-	@set -eu; \
-	if [ -f "$(AIKIDO_ENV_FILE)" ]; then \
-		set -a; . "$(AIKIDO_ENV_FILE)"; set +a; \
-	fi; \
-	KEY="$${AIKIDO_CLIENT_API_KEY:-$$AIKIDO_PERSONAL_API_KEY}"; \
-	if [ -z "$$KEY" ]; then \
-		echo "AIKIDO_CLIENT_API_KEY (or AIKIDO_PERSONAL_API_KEY) is not set." >&2; \
-		echo "Set it in env or pass AIKIDO_ENV_FILE=<path>; default is $(AIKIDO_ENV_FILE)." >&2; \
-		exit 1; \
-	fi; \
-	export AIKIDO_CLIENT_API_KEY="$$KEY"; \
-	COMMIT="$$(git rev-parse HEAD 2>/dev/null || true)"; \
-	if [ -z "$$COMMIT" ]; then \
-		echo "Aikido CI release scan needs a committed revision. Use the Aikido MCP scanner for pre-commit local file scans." >&2; \
-		exit 1; \
-	fi; \
-	REPOSITORY_ID="$${AIKIDO_REPOSITORY_ID:-$$(basename "$$(pwd)")}" ; \
-	npx -y @aikidosec/ci-api-client scan-release "$$REPOSITORY_ID" "$$COMMIT" --apikey "$$AIKIDO_CLIENT_API_KEY"
 
 # --- Optional stacks (loopback-only, all bind to DEV_BIND_IP=127.0.0.1) ---
 

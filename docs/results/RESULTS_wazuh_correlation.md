@@ -1,6 +1,6 @@
 # Wazuh SIP Correlation Arm, Live Result
 
-This documents the third detection arm of the master-plan C3 comparison
+This documents the third detection arm of the C3 comparison
 (signature vs **correlation/SIEM** vs ML) going from "wired but silent" to
 "firing end-to-end on live traffic" on the campus VM.
 

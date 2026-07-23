@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Three-arm detection comparison (master-plan C3): signature (Suricata) vs
+# Three-arm detection comparison (C3): signature (Suricata) vs
 # correlation/SIEM (Wazuh) vs ML, evaluated at the source-IP level against the
 # attack_labels ground truth for a single attack-matrix campaign.
 #

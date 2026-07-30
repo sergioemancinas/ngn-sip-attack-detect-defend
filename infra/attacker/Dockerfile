@@ -1,6 +1,6 @@
 # SIPPTS is installed from GitHub at an explicit tag because the PyPI package
 # named sippts/SIPPTS is a fake single-release fork, not the upstream tool.
-FROM debian:12-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818 AS build
+FROM debian:13-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd AS build
 
 ARG SIPPTS_VERSION=v4.1.2
 ARG SCAPY_VERSION=2.6.1
@@ -36,7 +36,7 @@ import scapy
 assert scapy.__version__ == os.environ["SCAPY_VERSION"], scapy.__version__
 PY
 
-FROM debian:12-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
+FROM debian:13-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd
 
 ARG SCAPY_VERSION=2.6.1
 

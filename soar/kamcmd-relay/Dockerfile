@@ -4,7 +4,7 @@
 # Runs as root INSIDE the container only because /var/run/docker.sock is
 # root-owned on the Colima VM; the compose service compensates with
 # cap_drop: [ALL], no-new-privileges, read_only rootfs, pids/mem limits.
-FROM python:3.11-slim@sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93
+FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1

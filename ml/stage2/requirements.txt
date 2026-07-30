@@ -3,5 +3,5 @@
 #   reachable container-to-container via the sip_lab alias 'clickhouse').
 # psycopg[binary]: pgvector RAG retrieval from rag.document_chunks (bundled
 #   libpq, no system packages needed in the slim image).
-clickhouse-driver==0.2.9
-psycopg[binary]==3.2.9
+clickhouse-driver==0.2.11
+psycopg[binary]==3.3.4

@@ -4,8 +4,8 @@ version = "0.1.0"
 description = "Stage 2 local Ollama-backed Wazuh alert triage worker"
 requires-python = ">=3.11"
 dependencies = [
-  "clickhouse-driver==0.2.9",
-  "psycopg[binary]==3.2.9",
+  "clickhouse-driver==0.2.11",
+  "psycopg[binary]==3.3.4",
 ]
 
 [build-system]

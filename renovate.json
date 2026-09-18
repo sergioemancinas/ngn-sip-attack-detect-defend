@@ -1,0 +1,15 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":disableRateLimiting"
+  ],
+  "mode": "full",
+  "timezone": "Europe/Berlin",
+  "schedule": ["before 8am on monday"],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 8am on monday"]
+  },
+  "platformAutomerge": false
+}
